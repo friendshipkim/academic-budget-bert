@@ -1,5 +1,4 @@
 export WANDB_MODE=online
-# deepspeed --num_gpus 4 run_pretraining.py \
 deepspeed --include localhost:3 --master_port 29503 run_pretraining.py \
   --model_type bert-mlm --tokenizer_name google/bert_uncased_L-4_H-256_A-4 \
   --hidden_act gelu \
@@ -24,13 +23,13 @@ deepspeed --include localhost:3 --master_port 29503 run_pretraining.py \
   --adam_eps 1e-6 \
   --total_training_time 6.0 \
   --early_exit_time_marker 6.0 \
-  --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/set3 \
-  --output_dir ./saved_models/training-out-mini/ \
   --print_steps 100 \
   --num_epochs_between_checkpoints 10000 \
-  --job_name mini_pretraining \
-  --project_name budget-bert-pretraining \
+  --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/set3/ \
+  --output_dir /n/tata_ddos_ceph/woojeong/saved_models/pretrain/ \
+  --job_name mini \
   --current_run_id 3 \
+  --project_name budget-bert-pretraining \
   --validation_epochs 3 \
   --validation_epochs_begin 1 \
   --validation_epochs_end 1 \
@@ -44,5 +43,5 @@ deepspeed --include localhost:3 --master_port 29503 run_pretraining.py \
   --early_stop_time 180 \
   --early_stop_eval_loss 6 \
   --seed 42 \
-  --fp16
-  # --max_steps_per_epoch 1100
+  --fp16 \
+  --load_tokenizer_locally

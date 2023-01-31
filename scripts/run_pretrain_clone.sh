@@ -29,10 +29,10 @@ deepspeed --num_gpus 4 run_pretraining.py \
   --adam_eps 1e-6 \
   --total_training_time 48.0 \
   --early_exit_time_marker 48.0 \
-  --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/total \
-  --output_dir /n/tata_ddos_ceph/woojeong/saved_models/pretrain/ \
   --print_steps 100 \
   --num_epochs_between_checkpoints 10000 \
+  --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/total \
+  --output_dir /n/tata_ddos_ceph/woojeong/saved_models/pretrain/ \
   --job_name large-clone \
   --current_run_id default \
   --project_name budget-bert-pretraining \
@@ -50,4 +50,5 @@ deepspeed --num_gpus 4 run_pretraining.py \
   --early_stop_eval_loss 6 \
   --seed 42 \
   --fp16 \
+  --load_tokenizer_locally \
   --max_steps_per_epoch 1100

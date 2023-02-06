@@ -1,7 +1,11 @@
+#! /bin/bash
 # Script to train a 2xhalflarge models
 # Stitch two half-large models trained on set 0/1
 # and train the stitched model on set 2/3 
 # Train for ~6k steps with 1 Titan-RTX gpu
+
+OTHER_PARAMS=${@:1}
+export WANDB_API_KEY=641959d1c0dbfc348e2e0b75279abe93425c6ec7
 
 export WANDB_MODE=online
 deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
@@ -16,7 +20,7 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --encoder_ln_mode pre-ln \
   --lr 1e-3 \
   --train_batch_size 4096 \
-  --train_micro_batch_size_per_gpu 32 \
+  --train_micro_batch_size_per_gpu 256 \
   --lr_schedule constant_step \
   --curve linear \
   --warmup_proportion 0.06 \
@@ -28,7 +32,7 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --adam_eps 1e-6 \
   --max_steps 10000 \
   --num_warmup_steps 600 \
-  --dataset_path /opt/ml/data/set2/ \
+  --dataset_path /opt/ml/data/set23/ \
   --output_dir /opt/ml/data/saved_models/ \
   --print_steps 100 \
   --num_epochs_between_checkpoints 10000 \
@@ -44,10 +48,9 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --deepspeed \
   --data_loader_type dist \
   --do_validation \
-  --use_early_stopping \
-  --early_stop_eval_loss 6 \
   --seed 42 \
   --fp16 \
   --do_stitch \
   --src_model1_path /opt/ml/data/halflarge-0/0/epoch1000000_step10102/ \
-  --src_model2_path /opt/ml/data/halflarge-1/1/epoch1000000_step10010/
+  --src_model2_path /opt/ml/data/halflarge-1/1/epoch1000000_step10010/ \
+  $OTHER_PARAMS

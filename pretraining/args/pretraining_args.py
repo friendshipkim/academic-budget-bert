@@ -141,11 +141,11 @@ class PretrainScriptParamsArguments:
     )
 
     early_exit_time_marker: Optional[float] = field(
-        default=24.0, metadata={"help": "Max hours for pre-training)"}
+        default=240.0, metadata={"help": "Max hours for pre-training)"}
     )
 
     total_training_time: Optional[float] = field(
-        default=24.0, metadata={"help": "Max hours for pre-training)"}
+        default=240.0, metadata={"help": "Max hours for pre-training)"}
     )
 
     finetune_time_markers: Optional[str] = field(

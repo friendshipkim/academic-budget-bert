@@ -1,0 +1,68 @@
+# This workflow demonstrates the use of a generator step which produces a list of items as a result.
+# This list is subsequently used for expanding the next step into multiple parallel steps.
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: ping
+spec:
+  volumes:
+  - name: argo-aws-cred
+    configMap:
+      name: argo-aws-cred
+  - name: argo-aws-config
+    configMap:
+      name: argo-aws-config
+  - name: dshm
+    emptyDir:
+      medium: Memory
+  - name: vast-vd-nfs
+    hostPath:
+      path: /mobileye/ALGO_VAST/mobileye-team-vd/gal/stitching/
+      type: Directory
+  entrypoint: s3-2-op
+  templates:
+  - name: s3-2-op
+    steps:
+    - - name: angie-exec
+        template: angie-exec
+  - name: angie-exec
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+    nodeSelector:
+      gpu: nvidia-a100
+    container:
+      env:
+        - name: OP_S3_STORAGE
+          valueFrom:
+            secretKeyRef:
+              name: op-s3-storage
+              key: endpointurl
+      imagePullPolicy: Always
+      image: artifactory.sddc.mobileye.com/angie-docker-dev/galk/dbert-argo:latest
+      resources:
+        requests:
+          memory: 125Gi
+          cpu: 24
+          nvidia.com/gpu: '1'
+        limits:
+          memory: 125Gi
+          cpu: 24
+          nvidia.com/gpu: '1'
+      command: [bash, -c]
+      args: 
+        - >-
+          ping google.com; ping http://gitlab.mobileye.com/
+      volumeMounts:
+      - name: argo-aws-cred
+        mountPath: /home/me.docker/.aws/credentials
+        subPath: credentials
+      - name: argo-aws-config
+        mountPath: /home/me.docker/.aws/config
+        subPath: config
+      - name: dshm
+        mountPath: /dev/shm
+      - name: vast-vd-nfs
+        mountPath: /opt/ml/data/
+

@@ -31,7 +31,7 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/set0 \
   --output_dir /n/tata_ddos_ceph/woojeong/saved_models/pretrain/ \
   --job_name halflarge \
-  --current_run_id set1-10ksteps \
+  --current_run_id set0-10ksteps \
   --project_name budget-bert-pretraining \
   --validation_epochs 3 \
   --validation_epochs_begin 1 \

@@ -1,5 +1,7 @@
-# Script to pretrain a half-large model
-# Train for ~10k steps with 1 Titan-RTX gpu
+# Script to train a 2xhalflarge models
+# Stitch two half-large models trained on set 0/1
+# and train the stitched model on set 2/3 
+# Train for ~6k steps with 1 Titan-RTX gpu
 
 export WANDB_MODE=online
 deepspeed --include localhost:1 --master_port 29501 run_pretraining.py \
@@ -14,7 +16,7 @@ deepspeed --include localhost:1 --master_port 29501 run_pretraining.py \
   --encoder_ln_mode pre-ln \
   --lr 1e-3 \
   --train_batch_size 4096 \
-  --train_micro_batch_size_per_gpu 256 \
+  --train_micro_batch_size_per_gpu 32 \
   --lr_schedule constant_step \
   --curve linear \
   --warmup_proportion 0.06 \
@@ -24,24 +26,27 @@ deepspeed --include localhost:1 --master_port 29501 run_pretraining.py \
   --adam_beta1 0.9 \
   --adam_beta2 0.98 \
   --adam_eps 1e-6 \
-  --max_steps 20000 \
-  --num_warmup_steps 1200 \
+  --max_steps 10000 \
+  --num_warmup_steps 600 \
   --print_steps 100 \
   --num_epochs_between_checkpoints 10000 \
-  --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/set1 \
+  --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/set23/ \
   --output_dir /n/tata_ddos_ceph/woojeong/saved_models/pretrain/ \
-  --job_name halflarge \
-  --current_run_id 1-20ksteps \
+  --job_name 2xhalflarge \
+  --current_run_id set23-10ksteps \
   --project_name budget-bert-pretraining \
   --validation_epochs 3 \
   --validation_epochs_begin 1 \
   --validation_epochs_end 1 \
   --validation_begin_proportion 0.05 \
   --validation_end_proportion 0.01 \
-  --validation_micro_batch 16 \
+  --validation_micro_batch 32 \
   --deepspeed \
   --data_loader_type dist \
   --do_validation \
   --seed 42 \
   --fp16 \
-  --load_tokenizer_locally
+  --load_tokenizer_locally \
+  --do_stitch \
+  --src_model1_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-0/0/epoch1000000_step10102/ \
+  --src_model2_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-1/1/epoch1000000_step10010/

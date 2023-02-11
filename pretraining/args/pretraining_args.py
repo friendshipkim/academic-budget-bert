@@ -129,6 +129,10 @@ class PretrainScriptParamsArguments:
         default=16, metadata={"help": "Per device validation batch size"}
     )
 
+    validation_shards: Optional[int] = field(
+        default=1, metadata={"help": "Number of validation shards"}
+    )
+
     add_nsp: Optional[bool] = field(
         default=False,
         metadata={

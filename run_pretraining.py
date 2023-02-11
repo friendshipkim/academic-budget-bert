@@ -271,9 +271,15 @@ def train(
     if validation_dataset is not None and scale_counter_at_1 < args.scale_cnt_limit:
         time_diff = get_time_diff_hours(get_now(), args.exp_start_marker)
         if should_run_validation(time_diff, args, epoch=index):
-            eval_loss = pretrain_validation(
-                args, model, validation_dataset, global_step
-            )
+            logger.info("Running validation...")
+            eval_losses = []
+            for _ in range(args.validation_shards):
+                eval_loss = pretrain_validation(
+                            args, model, validation_dataset, global_step
+                        )   
+                eval_losses.append(eval_loss)
+            eval_loss = sum(eval_losses) / len(eval_losses)
+           
 
     logger.info(f"Epoch {index}: check if time to save a fine-tune checkpoint")
     if (

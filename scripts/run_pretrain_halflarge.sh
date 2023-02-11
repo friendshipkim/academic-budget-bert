@@ -1,5 +1,5 @@
 # Script to pretrain a half-large model
-# Train for ~10k steps with 1 Titan-RTX gpu
+# Train for 10k steps with 1 gpu
 
 export WANDB_MODE=online
 deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
@@ -14,8 +14,8 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --encoder_ln_mode pre-ln \
   --lr 1e-3 \
   --train_batch_size 4096 \
-  --train_micro_batch_size_per_gpu 32 \
-  --lr_schedule time \
+  --train_micro_batch_size_per_gpu 256 \
+  --lr_schedule constant_step \
   --curve linear \
   --warmup_proportion 0.06 \
   --gradient_clipping 0.0 \
@@ -24,14 +24,14 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --adam_beta1 0.9 \
   --adam_beta2 0.98 \
   --adam_eps 1e-6 \
-  --total_training_time 48.0 \
-  --early_exit_time_marker 48.0 \
-  --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/set0 \
-  --output_dir /n/tata_ddos_ceph/woojeong/saved_models/pretrain/ \
+  --max_steps 10000 \
+  --num_warmup_steps 600 \
   --print_steps 100 \
   --num_epochs_between_checkpoints 10000 \
+  --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/set0 \
+  --output_dir /n/tata_ddos_ceph/woojeong/saved_models/pretrain/ \
   --job_name halflarge \
-  --current_run_id 0 \
+  --current_run_id set0-10ksteps \
   --project_name budget-bert-pretraining \
   --validation_epochs 3 \
   --validation_epochs_begin 1 \
@@ -42,8 +42,5 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --deepspeed \
   --data_loader_type dist \
   --do_validation \
-  --use_early_stopping \
-  --early_stop_time 180 \
-  --early_stop_eval_loss 6 \
   --seed 42 \
   --fp16

@@ -614,7 +614,6 @@ def start_training(args, model, optimizer, lr_scheduler, start_epoch):
             break
 
         # save a checkpoint
-        import ipdb; ipdb.set_trace()
         if (
             index > 0
             and args.num_epochs_between_checkpoints > 0

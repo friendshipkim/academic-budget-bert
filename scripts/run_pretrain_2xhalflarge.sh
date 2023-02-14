@@ -35,7 +35,7 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --dataset_path /opt/ml/data/set23/ \
   --output_dir /opt/ml/data/saved_models/ \
   --print_steps 100 \
-  --num_epochs_between_checkpoints 10000 \
+  --num_epochs_between_checkpoints 10 \
   --job_name 2xhalflarge \
   --current_run_id set23 \
   --project_name budget-bert-pretraining \

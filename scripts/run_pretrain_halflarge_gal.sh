@@ -15,15 +15,15 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --hidden_dropout_prob 0.1 \
   --attention_probs_dropout_prob 0.1 \
   --encoder_ln_mode pre-ln \
-  --lr 1e-3 \
+  --lr 0.0015 \
   --train_batch_size 4096 \
   --train_micro_batch_size_per_gpu 1024 \
   --lr_schedule constant_step \
   --curve linear \
-  --warmup_proportion 0.06 \
+  --warmup_proportion 0.25 \
   --gradient_clipping 0.0 \
   --optimizer_type adamw \
-  --weight_decay 0.01 \
+  --weight_decay 0.05 \
   --adam_beta1 0.9 \
   --adam_beta2 0.98 \
   --adam_eps 1e-6 \

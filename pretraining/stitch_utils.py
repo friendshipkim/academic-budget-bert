@@ -61,7 +61,7 @@ def copy_linear(
         epsilon (float): float number to fill non-diagonal parts
         extra_src_list (List[torch.nn.Linear or LinearActivation]): third, fourth source Linear layer if needed
     """
-    stitch4 = len(extra_src_list) != 4
+    stitch4 = len(extra_src_list) != 0
 
     if stitch4:
         src3, src4 = extra_src_list[0], extra_src_list[1]

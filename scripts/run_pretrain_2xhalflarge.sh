@@ -26,12 +26,12 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --adam_beta1 0.9 \
   --adam_beta2 0.98 \
   --adam_eps 1e-6 \
-  --total_training_time 48.0 \
-  --early_exit_time_marker 48.0 \
-  --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/set23 \
-  --output_dir /n/tata_ddos_ceph/woojeong/saved_models/pretrain/ \
+  --max_steps 10000 \
+  --num_warmup_steps 600 \
   --print_steps 100 \
   --num_epochs_between_checkpoints 10000 \
+  --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/set23/ \
+  --output_dir /n/tata_ddos_ceph/woojeong/saved_models/pretrain/ \
   --job_name 2xhalflarge \
   --current_run_id set23 \
   --project_name budget-bert-pretraining \
@@ -44,11 +44,8 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --deepspeed \
   --data_loader_type dist \
   --do_validation \
-  --use_early_stopping \
-  --early_stop_time 180 \
-  --early_stop_eval_loss 6 \
   --seed 42 \
   --fp16 \
   --do_stitch \
-  --src_model1_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge_pretraining-0/0/epoch1000000_step10102/ \
-  --src_model2_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge_pretraining-1/1/epoch1000000_step10010/
+  --src_model1_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-0/0/epoch1000000_step10102/ \
+  --src_model2_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-1/1/epoch1000000_step10010/

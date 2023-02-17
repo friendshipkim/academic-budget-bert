@@ -3,7 +3,7 @@
 # and train the stitched model on all sets
 
 export WANDB_MODE=online
-deepspeed --include localhost:1 --master_port 29501 run_pretraining.py \
+deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --model_type bert-mlm --tokenizer_name bert-large-uncased \
   --hidden_act gelu \
   --hidden_size 512 \
@@ -49,5 +49,4 @@ deepspeed --include localhost:1 --master_port 29501 run_pretraining.py \
   --src_model1_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-0/0/epoch1000000_step10102/ \
   --src_model2_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-1/1/epoch1000000_step10010/ \
   --src_model3_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-2/2/epoch1000000_step9799/ \
-  --src_model4_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-3/3/epoch1000000_step9923/ \
-  --load_tokenizer_locally
+  --src_model4_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-3/3/epoch1000000_step9923/

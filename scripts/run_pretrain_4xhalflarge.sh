@@ -1,7 +1,6 @@
-# Script to train a 2xhalflarge models
-# Stitch two half-large models trained on set 0/1
-# and train the stitched model on set 2/3 
-# Train for ~6k steps with 1 Titan-RTX gpu
+# Script to train a 4xhalflarge models
+# Stitch four half-large models trained on set 0/1/2/3
+# and train the stitched model on all sets
 
 export WANDB_MODE=online
 deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
@@ -17,7 +16,7 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --lr 1e-3 \
   --train_batch_size 4096 \
   --train_micro_batch_size_per_gpu 32 \
-  --lr_schedule time \
+  --lr_schedule constant_step \
   --curve linear \
   --warmup_proportion 0.06 \
   --gradient_clipping 0.0 \
@@ -30,10 +29,10 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --num_warmup_steps 600 \
   --print_steps 100 \
   --num_epochs_between_checkpoints 10000 \
-  --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/set23/ \
+  --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/total/ \
   --output_dir /n/tata_ddos_ceph/woojeong/saved_models/pretrain/ \
-  --job_name 2xhalflarge \
-  --current_run_id set23 \
+  --job_name 4xhalflarge \
+  --current_run_id total \
   --project_name budget-bert-pretraining \
   --validation_epochs 3 \
   --validation_epochs_begin 1 \
@@ -48,4 +47,6 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --fp16 \
   --do_stitch \
   --src_model1_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-0/0/epoch1000000_step10102/ \
-  --src_model2_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-1/1/epoch1000000_step10010/
+  --src_model2_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-1/1/epoch1000000_step10010/ \
+  --src_model3_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-2/2/epoch1000000_step9799/ \
+  --src_model4_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-3/3/epoch1000000_step9923/

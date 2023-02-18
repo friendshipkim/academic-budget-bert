@@ -1,11 +1,6 @@
-#! /bin/bash
-# Script to train a 2xhalflarge models
-# Stitch two half-large models trained on set 0/1
-# and train the stitched model on set 2/3 
-# Train for ~6k steps with 1 Titan-RTX gpu
-
-OTHER_PARAMS=${@:1}
-export WANDB_API_KEY=641959d1c0dbfc348e2e0b75279abe93425c6ec7
+# Script to train a 4xhalflarge models
+# Stitch four half-large models trained on set 0/1/2/3
+# and train the stitched model on all sets
 
 export WANDB_MODE=online
 deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
@@ -20,7 +15,7 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --encoder_ln_mode pre-ln \
   --lr 1e-3 \
   --train_batch_size 4096 \
-  --train_micro_batch_size_per_gpu 256 \
+  --train_micro_batch_size_per_gpu 32 \
   --lr_schedule constant_step \
   --curve linear \
   --warmup_proportion 0.06 \
@@ -32,12 +27,12 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --adam_eps 1e-6 \
   --max_steps 10000 \
   --num_warmup_steps 600 \
-  --dataset_path /opt/ml/data/set23/ \
-  --output_dir /opt/ml/data/saved_models/ \
   --print_steps 100 \
-  --num_epochs_between_checkpoints 10 \
-  --job_name 2xhalflarge \
-  --current_run_id set23 \
+  --num_epochs_between_checkpoints 10000 \
+  --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/total/ \
+  --output_dir /n/tata_ddos_ceph/woojeong/saved_models/pretrain/ \
+  --job_name 4xhalflarge \
+  --current_run_id total \
   --project_name budget-bert-pretraining \
   --validation_epochs 3 \
   --validation_epochs_begin 1 \
@@ -51,6 +46,7 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --seed 42 \
   --fp16 \
   --do_stitch \
-  --src_model1_path /opt/ml/data/halflarge-0/0/epoch1000000_step10102/ \
-  --src_model2_path /opt/ml/data/halflarge-1/1/epoch1000000_step10010/ \
-  $OTHER_PARAMS
+  --src_model1_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-0/0/epoch1000000_step10102/ \
+  --src_model2_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-1/1/epoch1000000_step10010/ \
+  --src_model3_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-2/2/epoch1000000_step9799/ \
+  --src_model4_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-3/3/epoch1000000_step9923/

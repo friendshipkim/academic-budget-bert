@@ -25,6 +25,18 @@ class StitchArguments:
             "help": "Path to the second source pretrained model (should contain pytorch_model.bin)"
         },
     )
+    src_model3_path: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Necessary only when stitching 4 models, Path to the third source pretrained model (should contain pytorch_model.bin)"
+        },
+    )
+    src_model4_path: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Necessary only when stitching 4 models, Path to the second source pretrained model (should contain pytorch_model.bin)"
+        },
+    )
     skip_layernorm: Optional[bool] = field(
         default=False, metadata={"help": "whether to skip layernorms"}
     )

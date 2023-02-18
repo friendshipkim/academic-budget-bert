@@ -498,6 +498,8 @@ def stitch_models(args):
     - first source model: args.src_model1_path
     - second source model: args.src_model2_path
     """
+    stitch_4 = args.src_model3_path is not None
+        
     # Load two pre-training model skeletons + supplied model config
     src_model1 = BasePretrainModel(args)
     src_model2 = BasePretrainModel(args)
@@ -508,6 +510,18 @@ def stitch_models(args):
 
     checkpoint2 = torch.load(args.src_model2_path + "pytorch_model.bin")
     src_model2.network.load_state_dict(checkpoint2)
+    
+    # stitch 4 models
+    if stitch_4:
+        src_model3 = BasePretrainModel(args)
+        src_model4 = BasePretrainModel(args)
+        
+        # checkpoint: OrderedDict with model params
+        checkpoint3 = torch.load(args.src_model3_path + "pytorch_model.bin")
+        src_model3.network.load_state_dict(checkpoint3)
+
+        checkpoint4 = torch.load(args.src_model4_path + "pytorch_model.bin")
+        src_model4.network.load_state_dict(checkpoint4)
 
     # # load the last checkpoint
     # last_checkpoint_path1 = '/n/tata_ddos_ceph/woojeong/saved_models/pretrain/training-out-halflarge/halflarge_pretraining-0/0/latest_checkpoint/mp_rank_00_model_states.pt'
@@ -516,16 +530,28 @@ def stitch_models(args):
     # define stitched model skeleton
     stitched_model = BasePretrainModel(args, model_type="stitched-bert-mlm")
 
-    # stitch two source models
-    stitch(
-        src_model1.network,
-        src_model2.network,
-        stitched_model.network,
-        skip_layernorm=args.skip_layernorm,
-    )
-
-    del src_model1
-    del src_model2
+    if stitch_4:
+        # stitch four source models
+        print("===== Stitching 4 models =====")
+        stitch(
+            src_model1.network,
+            src_model2.network,
+            stitched_model.network,
+            skip_layernorm=args.skip_layernorm,
+            extra_src_list=[src_model3.network, src_model4.network]
+        ) 
+        del src_model1, src_model2, src_model3, src_model4
+           
+    else:
+        # stitch two source models
+        print("===== Stitching 2 models =====")
+        stitch(
+            src_model1.network, src_model2.network,
+            stitched_model.network,
+            skip_layernorm=args.skip_layernorm,
+            extra_src_list=[],
+        )
+        del src_model1, src_model2
 
     return stitched_model
 

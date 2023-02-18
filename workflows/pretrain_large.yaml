@@ -74,16 +74,17 @@ spec:
       image: artifactory.sddc.mobileye.com/angie-docker-dev/galk/dbert-argo:latest
       resources:
         requests:
-          memory: 500Gi
-          cpu: 96
+          memory: 480Gi
+          cpu: 92
           nvidia.com/gpu: '4'
         limits:
-          memory: 500Gi
-          cpu: 96
+          memory: 480Gi
+          cpu: 92
           nvidia.com/gpu: '4'
       command: [bash, -c]
       args: 
         - >-
+          nvidia-smi;
           git branch; 
           eval `ssh-agent`; 
           ssh-add docker/id_rsa; 

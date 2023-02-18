@@ -3,8 +3,22 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Workflow
 metadata:
-  generateName: ping
+  generateName: stitch-finetune
+  labels:
+    extendedRun: 'true'
+    USER: galk
 spec:
+  entrypoint: s3-2-op
+  arguments:
+    parameters:
+    - name: lr
+      value: 0.001
+    - name: warmup
+      value: 600
+    - name: steps
+      value: 10000
+    - name: seed
+      value: 44
   volumes:
   - name: argo-aws-cred
     configMap:
@@ -19,13 +33,22 @@ spec:
     hostPath:
       path: /mobileye/ALGO_VAST/mobileye-team-vd/gal/stitching/
       type: Directory
-  entrypoint: s3-2-op
   templates:
   - name: s3-2-op
     steps:
     - - name: angie-exec
         template: angie-exec
   - name: angie-exec
+    inputs:
+      parameters:
+      - name: lr
+        value: "{{workflow.parameters.lr}}"
+      - name: warmup
+        value: "{{workflow.parameters.warmup}}"
+      - name: steps
+        value: "{{workflow.parameters.steps}}"
+      - name: seed
+        value: "{{workflow.parameters.seed}}"
     tolerations:
       - key: nvidia.com/gpu
         operator: Exists
@@ -43,25 +66,26 @@ spec:
       image: artifactory.sddc.mobileye.com/angie-docker-dev/galk/dbert-argo:latest
       resources:
         requests:
-          memory: 480Gi
-          cpu: 80
-          nvidia.com/gpu: '4'
+          memory: 125Gi
+          cpu: 24
+          nvidia.com/gpu: '1'
         limits:
-          memory: 480Gi
-          cpu: 80
-          nvidia.com/gpu: '4'
+          memory: 125Gi
+          cpu: 24
+          nvidia.com/gpu: '1'
       command: [bash, -c]
+      ## ls; nvidia-smi; ls  /opt/ml/data/; git branch; eval `ssh-agent`; ssh-add docker/id_rsa; mkdir ~/.ssh; touch  ~/.ssh/known_hosts; ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts; sleep 1h ; git pull origin fixedschedule;
       args: 
         - >-
+          git branch; 
           eval `ssh-agent`; 
           ssh-add docker/id_rsa; 
           mkdir ~/.ssh; 
           touch  ~/.ssh/known_hosts; 
           ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts; 
           git stash;
-          git fetch;
-          git switch -f gals_changes;
-          python -m torch.distributed.run --nproc_per_node 4 --nnodes 1  torch-dist-test.py;
+          git pull origin fixedschedule;
+          bash scripts/run_pretrain_4xhalflarge_gal.sh --lr {{inputs.parameters.lr}} --num_warmup_steps {{inputs.parameters.warmup}} --max_steps {{inputs.parameters.steps}} --seed {{inputs.parameters.seed}};
       volumeMounts:
       - name: argo-aws-cred
         mountPath: /home/me.docker/.aws/credentials
@@ -73,4 +97,3 @@ spec:
         mountPath: /dev/shm
       - name: vast-vd-nfs
         mountPath: /opt/ml/data/
-

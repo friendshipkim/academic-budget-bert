@@ -1,9 +1,10 @@
 #! /usr/bin/env bash
 
-lrs=(0.0015 0.001 0.0008)
+# lrs=(0.0015 0.001 0.0008)
+lrs=(0.0015)
 max_steps=(10000)
-warmup_fraction=(0.2 0.225 0.3)
-wds=(0.01 0.05 0.001)
+warmup_fraction=(0.25)
+wds=(0.05)
 dataset_paths=(/opt/ml/data/set0/ /opt/ml/data/set1/ /opt/ml/data/set2/ /opt/ml/data/set3/)
 
 for seed in 42; do 
@@ -26,7 +27,7 @@ for seed in 42; do
                             
                     done
                 done
-                sleep 5 # to avoid argo throttling
+                # sleep 5 # to avoid argo throttling
             done
         done
     done

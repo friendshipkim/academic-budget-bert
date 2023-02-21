@@ -6,8 +6,8 @@ export WANDB_API_KEY=641959d1c0dbfc348e2e0b75279abe93425c6ec7
 
 export WANDB_MODE=online
 export CUDA_VISIBLE_DEVICES=0,1,2,3
-export NCCL_DEBUG=INFO
-export NCCL_DEBUG_SUBSYS=ALL
+# export NCCL_DEBUG=INFO
+# export NCCL_DEBUG_SUBSYS=ALL
 # to use only one gpu, run
 # deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
 deepspeed --num_gpus 4 run_pretraining.py \
@@ -50,9 +50,6 @@ deepspeed --num_gpus 4 run_pretraining.py \
   --deepspeed \
   --data_loader_type dist \
   --do_validation \
-  --use_early_stopping \
-  --early_stop_time 180 \
-  --early_stop_eval_loss 6 \
   --seed 42 \
   --fp16 \
   --max_steps_per_epoch 137 \

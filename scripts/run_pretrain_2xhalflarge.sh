@@ -16,7 +16,7 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --encoder_ln_mode pre-ln \
   --lr 1e-3 \
   --train_batch_size 4096 \
-  --train_micro_batch_size_per_gpu 32 \
+  --train_micro_batch_size_per_gpu 128 \
   --lr_schedule time \
   --curve linear \
   --warmup_proportion 0.06 \
@@ -40,7 +40,8 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --validation_epochs_end 1 \
   --validation_begin_proportion 0.05 \
   --validation_end_proportion 0.01 \
-  --validation_micro_batch 16 \
+  --validation_micro_batch 64 \
+  --validation_shards 5 \
   --deepspeed \
   --data_loader_type dist \
   --do_validation \

@@ -16,7 +16,7 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --encoder_ln_mode pre-ln \
   --lr 1e-3 \
   --train_batch_size 4096 \
-  --train_micro_batch_size_per_gpu 32 \
+  --train_micro_batch_size_per_gpu 128 \
   --lr_schedule time \
   --curve linear \
   --warmup_proportion 0.06 \
@@ -26,8 +26,8 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --adam_beta1 0.9 \
   --adam_beta2 0.98 \
   --adam_eps 1e-6 \
-  --total_training_time 48.0 \
-  --early_exit_time_marker 48.0 \
+  --max_steps 10000 \
+  --num_warmup_steps 600 \
   --print_steps 100 \
   --num_epochs_between_checkpoints 10000 \
   --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/set23/ \
@@ -40,13 +40,11 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --validation_epochs_end 1 \
   --validation_begin_proportion 0.05 \
   --validation_end_proportion 0.01 \
-  --validation_micro_batch 16 \
+  --validation_micro_batch 64 \
+  --validation_shards 5 \
   --deepspeed \
   --data_loader_type dist \
   --do_validation \
-  --use_early_stopping \
-  --early_stop_time 180 \
-  --early_stop_eval_loss 6 \
   --seed 42 \
   --fp16 \
   --load_tokenizer_locally \

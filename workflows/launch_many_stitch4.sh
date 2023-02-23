@@ -1,9 +1,9 @@
 #! /usr/bin/env bash
 
 # lrs=(0.0015 0.001 0.0008)
-lrs=(0.0015 0.0012 0.001)
-max_steps=(5000 7500 10000)
-warmup_fraction=(0.2 0.25 0.3)
+lrs=(0.0015 0.001)
+max_steps=(5000 10000)
+warmup_fraction=(0.2 0.3)
 wds=(0.01 0.05)
 dataset_paths=(/opt/ml/data/total/)
 
@@ -17,7 +17,7 @@ for seed in 42; do
                         echo warmupsteps: $warmupsteps
                         dp=`basename $dataset_path`
                         argo submit stitch4.yaml \
-``                            --name "pretrain-${seed}-${lr}-${max_step}-${warmup}-${wd}-${dp}" \
+``                            --name "stitch4-${seed}-${lr}-${max_step}-${warmup}-${wd}-${dp}" \
                             -p seed=$seed \
                             -p lr=$lr \
                             -p steps=$max_step \
@@ -26,7 +26,6 @@ for seed in 42; do
                             -p dataset_path=$dataset_path
                     done
                 done
-                sleep 5 # to avoid argo throttling
             done
         done
     done

@@ -74,7 +74,6 @@ spec:
           cpu: 24
           nvidia.com/gpu: '1'
       command: [bash, -c]
-      ## ls; nvidia-smi; ls  /opt/ml/data/; git branch; eval `ssh-agent`; ssh-add docker/id_rsa; mkdir ~/.ssh; touch  ~/.ssh/known_hosts; ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts; sleep 1h ; git pull origin fixedschedule;
       args: 
         - >-
           git branch; 

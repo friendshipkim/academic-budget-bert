@@ -18,7 +18,11 @@ spec:
     - name: steps
       value: 10000
     - name: seed
-      value: 44
+      value: 42
+    - name: dataset_path
+      value: /opt/ml/data/total/
+    - name: wd
+      value: 0.01
   volumes:
   - name: argo-aws-cred
     configMap:
@@ -49,12 +53,17 @@ spec:
         value: "{{workflow.parameters.steps}}"
       - name: seed
         value: "{{workflow.parameters.seed}}"
+      - name: dataset_path
+        value: "{{workflow.parameters.dataset_path}}"
+      - name: wd
+        value: "{{workflow.parameters.wd}}"
     tolerations:
       - key: nvidia.com/gpu
         operator: Exists
         effect: NoSchedule
     nodeSelector:
       gpu: nvidia-a100
+      kubernetes.io/hostname: megpua100-a09
     container:
       env:
         - name: OP_S3_STORAGE
@@ -74,7 +83,6 @@ spec:
           cpu: 24
           nvidia.com/gpu: '1'
       command: [bash, -c]
-      ## ls; nvidia-smi; ls  /opt/ml/data/; git branch; eval `ssh-agent`; ssh-add docker/id_rsa; mkdir ~/.ssh; touch  ~/.ssh/known_hosts; ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts; sleep 1h ; git pull origin fixedschedule;
       args: 
         - >-
           git branch; 
@@ -84,8 +92,9 @@ spec:
           touch  ~/.ssh/known_hosts; 
           ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts; 
           git stash;
-          git pull origin fixedschedule;
-          bash scripts/run_pretrain_4xhalflarge_gal.sh --lr {{inputs.parameters.lr}} --num_warmup_steps {{inputs.parameters.warmup}} --max_steps {{inputs.parameters.steps}} --seed {{inputs.parameters.seed}};
+          git fetch;
+          git switch -f gals_changes;
+          bash scripts/run_pretrain_4xhalflarge_gal.sh --lr {{inputs.parameters.lr}} --num_warmup_steps {{inputs.parameters.warmup}} --max_steps {{inputs.parameters.steps}} --seed {{inputs.parameters.seed}}  --dataset_path {{inputs.parameters.dataset_path}} --weight_decay {{inputs.parameters.wd}};
       volumeMounts:
       - name: argo-aws-cred
         mountPath: /home/me.docker/.aws/credentials

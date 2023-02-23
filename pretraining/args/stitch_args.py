@@ -40,3 +40,7 @@ class StitchArguments:
     skip_layernorm: Optional[bool] = field(
         default=False, metadata={"help": "whether to skip layernorms"}
     )
+    load_from : Optional[str] = field(
+        default=None, metadata={"help": "whether to load from a checkpoint"}
+    )
+

@@ -513,7 +513,24 @@ def stitch_models(args):
             extra_src_list=[],
         )
         del src_model1, src_model2
+    
+    if stitch_4:
+        # freeze all attention and mlp layers:
+        freeze_types = ['key', 'value', 'query', 'dense']
+        not_freeze_types = ['layernorm', 'embeddings', 'predictions.bias']
 
+        net = stitched_model.network
+        for name, param in net.named_parameters():
+            lower_name = name.lower()
+            if any([t in lower_name for t in freeze_types]):
+                param.requires_grad = False
+                assert not any([t in lower_name for t in not_freeze_types])
+                print(f'Freezing {name}')
+            elif any([t in lower_name for t in not_freeze_types]):
+                print(f'Not freezing {name}')
+            else:
+                raise ValueError(f'Unknown parameter type {name}')
+                
     return stitched_model
 
 
@@ -735,18 +752,23 @@ def prepare_resuming_checkpoint(args, model):
 
     return start_epoch, wandb_run_id
 
+def load_model_from(args):
+    model = BasePretrainModel(args)
+    # checkpoint: OrderedDict with model params
+    checkpoint = torch.load(args.load_from + "pytorch_model.bin")
+    model.network.load_state_dict(checkpoint)
+    return model
+
 
 def main():
     start_time = time.time()
     args = parse_arguments()
     args.exp_start_marker = get_now()
 
-    if args.do_stitch:
-        # pass a stitched model as an argument
-        model, optimizer, lr_scheduler = prepare_model_and_optimizer(args,
-                                                                     model=stitch_models(args))
-    else:
-        model, optimizer, lr_scheduler = prepare_model_and_optimizer(args)
+    model = stitch_models(args) if args.do_stitch else None
+    model = load_model_from(args) if args.load_from else model
+    model, optimizer, lr_scheduler = prepare_model_and_optimizer(args, model=model)
+
 
     start_epoch = 0
     wandb_run_id = None

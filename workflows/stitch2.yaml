@@ -14,13 +14,13 @@ spec:
     - name: lr
       value: 0.001
     - name: warmup
-      value: 2000
+      value: 600
     - name: steps
       value: 10000
     - name: seed
       value: 42
     - name: dataset_path
-      value: /opt/ml/data/set0/
+      value: /opt/ml/data/total/
     - name: wd
       value: 0.01
   volumes:
@@ -62,7 +62,7 @@ spec:
         operator: Exists
         effect: NoSchedule
     nodeSelector:
-      gpu: nvidia-a40
+      gpu: nvidia-a100
     container:
       env:
         - name: OP_S3_STORAGE
@@ -74,12 +74,12 @@ spec:
       image: artifactory.sddc.mobileye.com/angie-docker-dev/galk/dbert-argo:latest
       resources:
         requests:
-          memory: 120Gi
-          cpu: 20
+          memory: 125Gi
+          cpu: 24
           nvidia.com/gpu: '1'
         limits:
-          memory: 120Gi
-          cpu: 20
+          memory: 125Gi
+          cpu: 24
           nvidia.com/gpu: '1'
       command: [bash, -c]
       args: 
@@ -93,8 +93,7 @@ spec:
           git stash;
           git fetch;
           git switch -f gals_changes;
-          bash scripts/run_pretrain_halflarge_gal.sh --lr {{inputs.parameters.lr}} --num_warmup_steps {{inputs.parameters.warmup}} --max_steps {{inputs.parameters.steps}} --seed {{inputs.parameters.seed}} --dataset_path {{inputs.parameters.dataset_path}} --weight_decay {{inputs.parameters.wd}} \
-          --train_micro_batch_size_per_gpu 512;
+          bash scripts/run_pretrain_2xhalflarge_gal.sh --lr {{inputs.parameters.lr}} --num_warmup_steps {{inputs.parameters.warmup}} --max_steps {{inputs.parameters.steps}} --seed {{inputs.parameters.seed}}  --dataset_path {{inputs.parameters.dataset_path}} --weight_decay {{inputs.parameters.wd}};
       volumeMounts:
       - name: argo-aws-cred
         mountPath: /home/me.docker/.aws/credentials

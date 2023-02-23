@@ -403,7 +403,9 @@ def parse_arguments():
     logger.info(f"Running Config File: {args.job_name}")
     logger.info(f"Args = {args}")
     os.makedirs(args.output_dir, exist_ok=True)
-    args.saved_model_path = os.path.join(args.output_dir, args.job_name, args.current_run_id)
+    max_steps = args.max_steps
+    inner_dir = f"{os.path.basename(args.output_dir)}-{(max_steps//100)/10}k"
+    args.saved_model_path = os.path.join(args.output_dir, args.job_name, inner_dir)
     return args
 
 

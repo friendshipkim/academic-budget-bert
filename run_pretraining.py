@@ -404,7 +404,8 @@ def parse_arguments():
     logger.info(f"Args = {args}")
     os.makedirs(args.output_dir, exist_ok=True)
     max_steps = args.max_steps
-    inner_dir = f"{os.path.basename(args.output_dir)}-{(max_steps//100)/10}k"
+    dirname = os.path.basename(os.path.dirname(args.output_dir + "/"))
+    inner_dir = f"{dirname}-{(max_steps//100)/10}k"
     args.saved_model_path = os.path.join(args.output_dir, args.job_name, inner_dir)
     return args
 

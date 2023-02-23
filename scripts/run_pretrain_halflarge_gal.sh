@@ -33,8 +33,8 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --output_dir /opt/ml/data/saved_models/pretrain/ \
   --print_steps 100 \
   --num_epochs_between_checkpoints 10 \
-  --job_name halflarge_"$(($RANDOM%256))" \
-  --current_run_id set1-10ksteps \
+  --job_name halflarge \
+  --current_run_id "$(($RANDOM%256))" \
   --project_name budget-bert-pretraining \
   --validation_epochs 3 \
   --validation_epochs_begin 1 \

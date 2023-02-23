@@ -88,10 +88,11 @@ def get_valid_dataloader(args, dataset: Dataset):
     ))
 
 
+# global index to fetch a validation shard from the dataset
 validation_shard_index = 0
 
 
-def pretrain_validation(args, model, validation_dataset, step):
+def pretrain_validation(args, model, validation_dataset, step, shard_index=0):
     global validation_shard_index
 
     logger.info(f"Validation micro batch size: {args.validation_micro_batch}")
@@ -114,13 +115,8 @@ def pretrain_validation(args, model, validation_dataset, step):
         num_eval_steps += 1
     eval_loss = eval_loss / num_eval_steps
 
-    logger.info(f"Validation Loss for epoch/step {index + 1}/{step} is: {eval_loss}")
-    if master_process(args):
-        if _has_wandb:
-            log_info = {
-                "Validation/Loss": eval_loss,
-            }
-            wandb.log(log_info, step=step)
+    logger.info(f"Validation Loss for shard/step {shard_index}/{step} is: {eval_loss}")
+
     del dataset
     del data_batches
     del batch
@@ -253,10 +249,19 @@ def train(
         if should_run_validation(time_diff, args, epoch=index):
             logger.info("Running validation...")
             eval_losses = []
-            for _ in range(args.validation_shards):
-                eval_loss = pretrain_validation(args, model, validation_dataset, global_step)
+            for shard_index in range(args.validation_shards):
+                eval_loss = pretrain_validation(args, model, validation_dataset, global_step, shard_index)
                 eval_losses.append(eval_loss)
             eval_loss = sum(eval_losses) / len(eval_losses)
+                       
+            # log average loss
+            logger.info(f"Average Validation Loss for epoch/step {index}/{global_step} is: {eval_loss}")
+            if master_process(args):
+                if _has_wandb:
+                    log_info = {
+                        "Validation/Loss": eval_loss,
+                    }
+                    wandb.log(log_info, step=global_step)
 
     logger.info(f"Epoch {index}: check if time to save a fine-tune checkpoint")
     if (is_time_to_finetune(
@@ -494,7 +499,7 @@ def stitch_models(args):
 
     if stitch_4:
         # stitch four source models
-        print("===== Stitching 4 models =====")
+        logger.info("Stitching 4 models...")
         stitch(src_model1.network,
                src_model2.network,
                stitched_model.network,
@@ -504,7 +509,7 @@ def stitch_models(args):
 
     else:
         # stitch two source models
-        print("===== Stitching 2 models =====")
+        logger.info("Stitching 2 models...")
         stitch(
             src_model1.network,
             src_model2.network,

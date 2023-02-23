@@ -44,7 +44,8 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --validation_epochs_end 1 \
   --validation_begin_proportion 0.05 \
   --validation_end_proportion 0.01 \
-  --validation_micro_batch 16 \
+  --validation_micro_batch 64 \
+  --validation_shards 5 \
   --deepspeed \
   --data_loader_type dist \
   --do_validation \

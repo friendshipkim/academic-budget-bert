@@ -30,7 +30,7 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --max_steps 10000 \
   --num_warmup_steps 600 \
   --dataset_path /opt/ml/data/set0/ \
-  --output_dir /opt/ml/data/saved_models/ \
+  --output_dir /opt/ml/data/saved_models/pretrain/ \
   --print_steps 100 \
   --num_epochs_between_checkpoints 10 \
   --job_name halflarge_"$(($RANDOM%256))" \

@@ -109,15 +109,79 @@ def swish(x):
 
 ACT2FN = {"gelu": F.gelu, "relu": F.relu, "swish": swish, "tanh": F.tanh}
 
+# TODO
+# only when stitching,
+# find everywhere where LinearActivation, RegularLinearActivation, Linear is used
+# replace it to matmul
+# steps: 1. change the modeling.py and see if I can initialize the model
+# 2. change stitch_utils.py
+
+
+class ModularLinear(Module):
+    # from torch.nn.Linear
+    # https://pytorch.org/docs/stable/_modules/torch/nn/modules/linear.html#Linear
+    __constants__ = ['in_features', 'out_features']
+    in_features: int
+    out_features: int
+    weight: torch.Tensor
+    
+    def __init__(self, in_features: int, out_features: int, bias: bool = True,
+                 n_modules: int = 2) -> None:
+        super(ModularLinear, self).__init__()
+        self.n_modules = n_modules
+        self.modular_in_features = in_features // n_modules
+        self.modular_out_features = out_features // n_modules
+        
+        self.weight = Parameter(torch.Tensor(n_modules, self.modular_out_features, self.modular_in_features))
+        if bias:
+            self.bias = Parameter(torch.Tensor(n_modules, self.modular_out_features))
+        else:
+            self.register_parameter("bias", None)
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        # Setting a=sqrt(5) in kaiming_uniform is the same as initializing with
+        # uniform(-1/sqrt(in_features), 1/sqrt(in_features)). For details, see
+        # https://github.com/pytorch/pytorch/issues/57109
+        init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        if self.bias is not None:
+            fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
+            bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
+            init.uniform_(self.bias, -bound, bound)
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        bsz, seq_len, _ = input.size()
+        input = input.reshape(bsz, seq_len, self.n_modules, -1)
+        x = torch.matmul(self.weight, input[..., None]).squeeze(-1)
+        if self.bias is not None:
+            x = x + self.bias
+        return x.reshape(bsz, seq_len, -1)
+
+    def extra_repr(self):
+        return "in_features={}x{}, out_features={}x{}, bias={}".format(
+            self.n_modules, self.modular_in_features,
+            self.n_modules, self.modular_out_features,
+            self.bias is not None
+        )
+    
 
 class LinearActivation(Module):
     r"""Fused Linear and activation Module."""
     __constants__ = ["bias"]
 
-    def __init__(self, in_features, out_features, act="gelu", bias=True):
+    def __init__(self, in_features, out_features, act="gelu", bias=True, modularize=False, n_modules=2):
         super(LinearActivation, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
+        
+        # for modularized linear
+        self.modularize = modularize
+        if self.modularize:
+            # in/out dimensions of a module
+            self.n_modules = n_modules
+            self.modular_in_features = in_features // n_modules
+            self.modular_out_features = out_features // n_modules
+            
         self.fused_gelu = False
         self.fused_tanh = False
         self.fused_relu = False
@@ -134,14 +198,24 @@ class LinearActivation(Module):
                 self.act_fn = ACT2FN[act]
         else:
             self.act_fn = act
-        self.weight = Parameter(torch.Tensor(out_features, in_features))
-        if bias:
-            self.bias = Parameter(torch.Tensor(out_features))
+        
+        # init weight/bias
+        if self.modularize:
+            self.weight = Parameter(torch.Tensor(n_modules, self.modular_out_features, self.modular_in_features))
+            if bias:
+                self.bias = Parameter(torch.Tensor(n_modules, self.modular_out_features))
+            else:
+                self.register_parameter("bias", None)
         else:
-            self.register_parameter("bias", None)
+            self.weight = Parameter(torch.Tensor(out_features, in_features))
+            if bias:
+                self.bias = Parameter(torch.Tensor(out_features))
+            else:
+                self.register_parameter("bias", None)
         self.reset_parameters()
 
     def reset_parameters(self):
+        # TODO: check if init matters for modularization
         init.kaiming_uniform_(self.weight, a=math.sqrt(5))
         if self.bias is not None:
             fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
@@ -149,27 +223,61 @@ class LinearActivation(Module):
             init.uniform_(self.bias, -bound, bound)
 
     def forward(self, inp):
-        if self.fused_gelu:
-            return bias_gelu(self.bias, F.linear(inp, self.weight, None))
-        elif self.fused_tanh:
-            return bias_tanh(self.bias, F.linear(inp, self.weight, None))
-        elif self.fused_relu:
-            return bias_relu(self.bias, F.linear(inp, self.weight, None))
+        if self.modularize:
+            # inp: bsz, seq_len, 2d
+            bsz, seq_len, _ = inp.size()
+        
+            # inp: bsz, sqe_len, 2, d
+            inp = inp.reshape(bsz, seq_len, self.n_modules, -1)
+        
+            # TODO: compare einsum and torch.matmul performances
+            # self.weight:       2, 4d, d
+            # inp: bsz, seq_len, 2, d, 1
+            # x:   bsz, seq_len, 2, 4d
+            x = torch.matmul(self.weight, inp[..., None]).squeeze(-1)
+            
+            # # or you can use einsum
+            # x = torch.einsum('bsnh, nmh -> bsnm', inp, self.weight)
         else:
-            return self.act_fn(F.linear(inp, self.weight, self.bias))
+            x = F.linear(inp, self.weight, None)
+        
+        # bias + activation
+        if self.fused_gelu:
+            x = bias_gelu(self.bias, x)
+        elif self.fused_tanh:
+            x = bias_tanh(self.bias, x)
+        elif self.fused_relu:
+            x = bias_relu(self.bias, x)
+        else:
+            x = self.act_fn(x + self.bias)
+        
+        # reshape if modularize
+        return x.reshape(bsz, seq_len, -1) if self.modularize else x
 
     def extra_repr(self):
-        return "in_features={}, out_features={}, bias={}".format(
-            self.in_features, self.out_features, self.bias is not None
-        )
+        if self.modularize:
+            return "in_features={}x{}, out_features={}x{}, bias={}".format(
+                self.n_modules, self.modular_in_features,
+                self.n_modules, self.modular_out_features,
+                self.bias is not None
+            )  
+        else:
+            return "in_features={}, out_features={}, bias={}".format(
+                self.in_features, self.out_features, self.bias is not None
+            )
 
 
 class RegularLinearActivation(Module):
     """Regular Linear activation module with"""
 
-    def __init__(self, in_features, out_features, act="gelu"):
+    def __init__(self, in_features, out_features, act="gelu", modularize=False, n_modules=2):
         super(RegularLinearActivation, self).__init__()
-        self.dense = nn.Linear(in_features, out_features)
+        # for modularized linear
+        self.modularize = modularize
+        if self.modularize:
+            self.dense = ModularLinear(in_features, out_features, n_modules=n_modules)
+        else:
+            self.dense = nn.Linear(in_features, out_features)
         if isinstance(act, str) or (
             sys.version_info[0] == 2 and isinstance(act, unicode_literals)
         ):
@@ -318,9 +426,14 @@ class BertSelfAttention(nn.Module):
         # all_head_size - stitch: 2d, regular: d
         self.all_head_size = self.num_attention_heads * self.attention_head_size
 
-        self.query = nn.Linear(config.hidden_size, self.all_head_size)
-        self.key = nn.Linear(config.hidden_size, self.all_head_size)
-        self.value = nn.Linear(config.hidden_size, self.all_head_size)
+        if config.modularize:
+            self.query = ModularLinear(config.hidden_size, self.all_head_size)
+            self.key = ModularLinear(config.hidden_size, self.all_head_size)
+            self.value = ModularLinear(config.hidden_size, self.all_head_size)
+        else:
+            self.query = nn.Linear(config.hidden_size, self.all_head_size)
+            self.key = nn.Linear(config.hidden_size, self.all_head_size)
+            self.value = nn.Linear(config.hidden_size, self.all_head_size)
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
         self.softmax = nn.Softmax(dim=-1)
@@ -377,7 +490,10 @@ class BertSelfAttention(nn.Module):
 class BertSelfOutput(nn.Module):
     def __init__(self, config):
         super(BertSelfOutput, self).__init__()
-        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+        if config.modularize:
+            self.dense = ModularLinear(config.hidden_size, config.hidden_size)
+        else:
+            self.dense = nn.Linear(config.hidden_size, config.hidden_size)
         self.dense.bert_output_layer = True
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
@@ -417,7 +533,7 @@ class BertIntermediate(nn.Module):
         else:
             linear_layer = RegularLinearActivation
         self.dense_act = linear_layer(
-            config.hidden_size, config.intermediate_size, act=config.hidden_act
+            config.hidden_size, config.intermediate_size, act=config.hidden_act, modularize=config.modularize
         )
 
     def forward(self, hidden_states):
@@ -428,7 +544,10 @@ class BertIntermediate(nn.Module):
 class BertOutput(nn.Module):
     def __init__(self, config):
         super(BertOutput, self).__init__()
-        self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
+        if config.modularize:
+            self.dense = ModularLinear(config.intermediate_size, config.hidden_size)
+        else:
+            self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
         self.dense.bert_output_layer = True
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
@@ -659,7 +778,7 @@ class BertPooler(nn.Module):
         else:
             linear_layer = RegularLinearActivation
         self.dense_act = linear_layer(
-            config.hidden_size, config.hidden_size, act="tanh"
+            config.hidden_size, config.hidden_size, act="tanh", modularize=config.modularize
         )
 
     def forward(self, hidden_states):
@@ -679,7 +798,7 @@ class BertPredictionHeadTransform(nn.Module):
         else:
             linear_layer = RegularLinearActivation
         self.dense_act = linear_layer(
-            config.hidden_size, config.hidden_size, act=config.hidden_act
+            config.hidden_size, config.hidden_size, act=config.hidden_act, modularize=config.modularize
         )
         BertLayerNorm = get_layer_norm_type(config)
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
@@ -696,16 +815,26 @@ class BertLMPredictionHead(nn.Module):
     def __init__(self, config, bert_model_embedding_weights):
         super(BertLMPredictionHead, self).__init__()
         self.transform = BertPredictionHeadTransform(config)
-        self.decoder = nn.Linear(
-            bert_model_embedding_weights.size(1),
-            bert_model_embedding_weights.size(0),
-            bias=False,
-        )
-        self.decoder.weight = bert_model_embedding_weights
-        self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.size(0)))
+        # NOTE: probably use linear instead of Modular for prediction head?
+        if config.modularize:
+            self.decoder = ModularLinear(
+                bert_model_embedding_weights.size(1),
+                bert_model_embedding_weights.size(0),
+                bias=False,
+            )
+            self.bias = nn.Parameter(torch.zeros(2, bert_model_embedding_weights.size(0) // 2))
+        else:
+            self.decoder = nn.Linear(
+                bert_model_embedding_weights.size(1),
+                bert_model_embedding_weights.size(0),
+                bias=False,
+            )
+            self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.size(0)))
+        # TODO: check
+        self.decoder.weight.data = bert_model_embedding_weights.data
         self.sparse_predict = config.sparse_mask_prediction
         if not config.sparse_mask_prediction:
-            self.decoder.bias = self.bias
+            self.decoder.bias.data = self.bias.data
 
     def forward(self, hidden_states, masked_token_indexes):
         if self.sparse_predict:
@@ -735,6 +864,7 @@ class BertOnlyMLMHead(nn.Module):
 class BertOnlyNSPHead(nn.Module):
     def __init__(self, config):
         super(BertOnlyNSPHead, self).__init__()
+        # TODO: modularize
         self.seq_relationship = nn.Linear(config.hidden_size, 2)
 
     def forward(self, pooled_output):
@@ -746,6 +876,7 @@ class BertPreTrainingHeads(nn.Module):
     def __init__(self, config, bert_model_embedding_weights):
         super(BertPreTrainingHeads, self).__init__()
         self.predictions = BertLMPredictionHead(config, bert_model_embedding_weights)
+        # TODO: modularize
         self.seq_relationship = nn.Linear(config.hidden_size, 2)
 
     def forward(self, sequence_output, pooled_output, masked_token_indexes=None):
@@ -771,7 +902,7 @@ class BertPreTrainedModel(PreTrainedModel):
 
     def _init_weights(self, module):
         """Initialize the weights"""
-        if isinstance(module, (nn.Linear, nn.Embedding)):
+        if isinstance(module, (nn.Linear, ModularLinear, nn.Embedding)):
             # Slightly different from the TF version which uses truncated_normal for initialization
             # cf https://github.com/pytorch/pytorch/pull/5617
             module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
@@ -779,7 +910,7 @@ class BertPreTrainedModel(PreTrainedModel):
         elif isinstance(module, nn.LayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
-        if isinstance(module, nn.Linear) and module.bias is not None:
+        if isinstance(module, (nn.Linear, ModularLinear)) and module.bias is not None:
             module.bias.data.zero_()
 
 
@@ -1222,6 +1353,7 @@ class BertForSequenceClassification(BertPreTrainedModel):
         self.bert = BertModel(config, args)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
+        # TODO: modularize if necessary
         self.classifier = nn.Linear(config.hidden_size, self.num_labels)
         self.init_weights()
 

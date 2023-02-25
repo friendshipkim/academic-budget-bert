@@ -40,3 +40,6 @@ class StitchArguments:
     skip_layernorm: Optional[bool] = field(
         default=False, metadata={"help": "whether to skip layernorms"}
     )
+    modularize: Optional[bool] = field(
+        default=False, metadata={"help": "whether to use modular linear layers (2d x 2d -> 2 x d x d)"}
+    )

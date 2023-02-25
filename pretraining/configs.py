@@ -65,6 +65,7 @@ class PretrainedBertConfig(BertConfig):
         self.sparse_mask_prediction = sparse_mask_prediction
         self.layer_norm_type = layer_norm_type
         self.layernorm_embedding = layernorm_embedding
+        self.modularize = kwargs.get("modularize", False)
 
 
 class StitchedPretrainedBertConfig(PretrainedBertConfig):
@@ -74,10 +75,12 @@ class StitchedPretrainedBertConfig(PretrainedBertConfig):
         super().__init__(**kwargs)
         # NOTE: now stitching two models with identical architectures
         # to use two different architectures, change it to take two BertConfigs
+        self.is_stitched = True
         self.hidden_size = self.hidden_size * 2
         self.intermediate_size = self.intermediate_size * 2
         self.num_attention_heads = self.num_attention_heads * 2
         self.epsilon = kwargs.get("epsilon", 0)
+        self.modularize = kwargs.get("modularize", False)
 
 
 class PretrainedRobertaConfig(PretrainedBertConfig):

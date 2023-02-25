@@ -82,6 +82,9 @@ class BasePretrainModel(object):
         if not config:
             if model_name_or_path is None:
                 logger.info("Loading config from args")
+                # add args.modularize to model config
+                if model_type == "stitched-bert-mlm":
+                    args.model_config["modularize"] = args.modularize
                 config = config_cls(**args.model_config)
                 config = self._init_vocab_size(config)
             else:

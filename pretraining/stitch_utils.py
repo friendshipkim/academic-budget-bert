@@ -19,6 +19,12 @@ from pretraining.modeling import (
 from pretraining.configs import PretrainedBertConfig
 
 
+# global vars
+epsilon = 1
+skip_layernorm = False
+stitch4 = False
+
+
 # TODO: merge this into StitchedBertConfig
 def check_if_stitchable(
     src1_cfg: Type[PretrainedBertConfig],
@@ -48,7 +54,6 @@ def copy_linear(
     src1: Union[Type[nn.Linear], Type[LinearActivation]],
     src2: Union[Type[nn.Linear], Type[LinearActivation]],
     tgt: Union[Type[nn.Linear], Type[LinearActivation]],
-    epsilon: float,
     extra_src_list: List[Union[Type[nn.Linear], Type[LinearActivation], None]],
 ) -> None:
     """
@@ -58,11 +63,8 @@ def copy_linear(
         src1 (torch.nn.Linear or LinearActivation): first source Linear layer
         src2 (torch.nn.Linear or LinearActivation): second source Linear layer
         tgt (torch.nn.Linear or LinearActivation): target Linear layer
-        epsilon (float): float number to fill non-diagonal parts
         extra_src_list (List[torch.nn.Linear or LinearActivation]): third, fourth source Linear layer if needed
     """
-    stitch4 = len(extra_src_list) != 0
-
     if stitch4:
         src3, src4 = extra_src_list[0], extra_src_list[1]
 
@@ -140,7 +142,6 @@ def copy_layernorm(
         tgt (torch.nn.LayerNorm or apex FusedLayerNorm): target LayerNorm
         extra_src_list (List[torch.nn.LayerNorm or apex FusedLayerNorm]): third, fourth source LayerNorm if needed
     """
-    stitch4 = len(extra_src_list) != 0
     if stitch4:
         src3, src4 = extra_src_list[0], extra_src_list[1]
         src1_dim, src2_dim, src3_dim, src4_dim, tgt_dim = (
@@ -185,7 +186,6 @@ def copy_self_attn(
     src1: Type[BertSelfAttention],
     src2: Type[BertSelfAttention],
     tgt: Type[BertSelfAttention],
-    epsilon: float,
     extra_src_list: List[Union[Type[BertSelfAttention], None]],
 ) -> None:
     """
@@ -195,30 +195,25 @@ def copy_self_attn(
         src1 (BertSelfAttention): first source BertSelfAttention module
         src2 (BertSelfAttention): second source BertSelfAttention module
         tgt (BertSelfAttention): target BertSelfAttention module
-        epsilon (float): float number to fill the rest
         extra_src_list (list): third, fourth source BertSelfAttentions if needed
     """
-    stitch4 = len(extra_src_list) != 0
     # copy linear layers of query, key, value
     copy_linear(
         src1.query,
         src2.query,
         tgt.query,
-        epsilon,
         extra_src_list=[src.query for src in extra_src_list] if stitch4 else [],
     )
     copy_linear(
         src1.key,
         src2.key,
         tgt.key,
-        epsilon,
         extra_src_list=[src.key for src in extra_src_list] if stitch4 else [],
     )
     copy_linear(
         src1.value,
         src2.value,
         tgt.value,
-        epsilon,
         extra_src_list=[src.value for src in extra_src_list] if stitch4 else [],
     )
 
@@ -227,8 +222,6 @@ def copy_attention(
     src1: Type[BertAttention],
     src2: Type[BertAttention],
     tgt: Type[BertAttention],
-    epsilon: float,
-    # skip_layernorm: bool,
     extra_src_list: List[Union[Type[BertAttention], None]],
 ) -> None:
     """
@@ -238,18 +231,13 @@ def copy_attention(
         src1 (BertAttention): first source BertAttention module
         src2 (BertAttention): second source BertAttention module
         tgt (BertAttention): target BertAttention module
-        epsilon (float): float number to fill the rest
-        # skip_layernorm (bool): whether not to stitch layernorms
         extra_src_list (list): third, fourth source BertAttentions if needed
     """
-    stitch4 = len(extra_src_list) != 0
-
     # Key, query, value projections
     copy_self_attn(
         src1.self,
         src2.self,
         tgt.self,
-        epsilon,
         extra_src_list=[src.self for src in extra_src_list] if stitch4 else [],
     )
 
@@ -258,7 +246,6 @@ def copy_attention(
         src1.output.dense,
         src2.output.dense,
         tgt.output.dense,
-        epsilon,
         extra_src_list=[src.output.dense for src in extra_src_list] if stitch4 else [],
     )
 
@@ -271,8 +258,6 @@ def copy_layer(
     src1: Type[BertLayer],
     src2: Type[BertLayer],
     tgt: Type[BertLayer],
-    epsilon: float,
-    skip_layernorm: bool,
     extra_src_list: List[Union[Type[BertLayer], None]],
 ) -> None:
     """
@@ -281,18 +266,13 @@ def copy_layer(
         src1 (transformers.models.bert.modeling_bert.BertLayer): first source BertLayer
         src2 (transformers.models.bert.modeling_bert.BertLayer): second source BertLayer
         tgt (transformers.models.bert.modeling_bert.BertLayer): target BertLayer
-        epsilon (float): float number to fill the rest
-        skip_layernorm (bool): whether not to stitch layernorms
         extra_src_list (list): third, fourth source BertLayers if needed
     """
-    stitch4 = len(extra_src_list) != 0
-
     # Multihead attentions
     copy_attention(
         src1.attention,
         src2.attention,
         tgt.attention,
-        epsilon,
         extra_src_list=[src.attention for src in extra_src_list] if stitch4 else [],
     )
 
@@ -301,7 +281,6 @@ def copy_layer(
         src1.intermediate.dense_act,
         src2.intermediate.dense_act,
         tgt.intermediate.dense_act,
-        epsilon,
         extra_src_list=[src.intermediate.dense_act for src in extra_src_list] if stitch4 else [],
     )
 
@@ -310,7 +289,6 @@ def copy_layer(
         src1.output.dense,
         src2.output.dense,
         tgt.output.dense,
-        epsilon,
         extra_src_list=[src.output.dense for src in extra_src_list] if stitch4 else [],
     )
     # # NOTE: No output layernorm
@@ -337,7 +315,6 @@ def copy_embeddings(
     src1: Type[BertEmbeddings],
     src2: Type[BertEmbeddings],
     tgt: Type[BertEmbeddings],
-    # skip_layernorm: bool
     extra_src_list: List[Union[Type[BertEmbeddings], None]],
 ) -> None:
     """
@@ -346,37 +323,29 @@ def copy_embeddings(
         src1 (BertEmbeddings): first source BertEmbeddings module
         src2 (BertEmbeddings): second source BertEmbeddings module
         tgt (BertEmbeddings): target BertEmbeddings module
-        # skip_layernorm (bool): whether not to stitch layernorms
         extra_src_list (list): third, fourth source BertEmbeddings if needed
     """
     # Embeddings
     embed_types = ["word_embeddings", "position_embeddings", "token_type_embeddings"]
 
-    # stitch two models
-    if len(extra_src_list) == 0:
+    if stitch4:
+        src3, src4 = extra_src_list
+        for embed_type in embed_types:
+            tgt.get_submodule(embed_type).weight.data[:] = torch.cat(
+                (
+                    (src1.get_submodule(embed_type).weight.data
+                     + src2.get_submodule(embed_type).weight.data) / 2,
+                    (src3.get_submodule(embed_type).weight.data
+                     + src4.get_submodule(embed_type).weight.data) / 2,
+                ),
+                dim=-1,
+            )
+    else:
         for embed_type in embed_types:
             tgt.get_submodule(embed_type).weight.data[:] = torch.cat(
                 (
                     src1.get_submodule(embed_type).weight.data,
                     src2.get_submodule(embed_type).weight.data,
-                ),
-                dim=-1,
-            )
-
-    # stitch four modules
-    else:
-        src3, src4 = extra_src_list
-        for embed_type in embed_types:
-            tgt.get_submodule(embed_type).weight.data[:] = torch.cat(
-                (
-                    (
-                        src1.get_submodule(embed_type).weight.data
-                        + src2.get_submodule(embed_type).weight.data
-                    ) / 2,
-                    (
-                        src3.get_submodule(embed_type).weight.data
-                        + src4.get_submodule(embed_type).weight.data
-                    ) / 2,
                 ),
                 dim=-1,
             )
@@ -390,8 +359,6 @@ def copy_bert(
     src1: Type[BertModel],
     src2: Type[BertModel],
     tgt: Type[BertModel],
-    skip_layernorm: bool,
-    epsilon: float,
     extra_src_list: List[Type[BertModel]],
 ) -> None:
     """Copy two source BertModels to the target BertModel
@@ -399,22 +366,18 @@ def copy_bert(
         src1 (BertModel): first source BertModel
         src2 (BertModel): second source BertModel
         tgt (BertModel): target BertModel
-        skip_layernorm (bool): whether not to stitch layernorms
-        epsilon (float): float number to fill the rest
         extra_src_list (list): third, fourth source BertModels if needed
     """
-    stitch_4 = len(extra_src_list) != 0
-
     # Embeddings
     copy_embeddings(
-        src1.embeddings, 
-        src2.embeddings, 
-        tgt.embeddings, 
-        extra_src_list=[src.embeddings for src in extra_src_list] if stitch_4 else [])
+        src1.embeddings,
+        src2.embeddings,
+        tgt.embeddings,
+        extra_src_list=[src.embeddings for src in extra_src_list] if stitch4 else [])
 
     # Copy transformer layers
     n_layers = len(src1.encoder.layer)
-    if stitch_4:
+    if stitch4:
         extra_layer_list = [
             [layer_3, layer_4]
             for layer_3, layer_4 in zip(
@@ -427,7 +390,7 @@ def copy_bert(
     for layer_1, layer_2, layer_st, extra_layers in zip(
         src1.encoder.layer, src2.encoder.layer, tgt.encoder.layer, extra_layer_list
     ):
-        copy_layer(layer_1, layer_2, layer_st, epsilon, skip_layernorm, extra_layers)
+        copy_layer(layer_1, layer_2, layer_st, extra_layers)
 
     # NOTE: copy final LayerNorm
     if not skip_layernorm:
@@ -435,7 +398,7 @@ def copy_bert(
             src1.encoder.FinalLayerNorm,
             src2.encoder.FinalLayerNorm,
             tgt.encoder.FinalLayerNorm,
-            extra_src_list=[src.encoder.FinalLayerNorm for src in extra_src_list] if stitch_4 else [],
+            extra_src_list=[src.encoder.FinalLayerNorm for src in extra_src_list] if stitch4 else [],
         )
 
     # Pooler
@@ -443,8 +406,7 @@ def copy_bert(
         src1.pooler.dense_act,
         src2.pooler.dense_act,
         tgt.pooler.dense_act,
-        epsilon,
-        extra_src_list=[src.pooler.dense_act for src in extra_src_list] if stitch_4 else [],
+        extra_src_list=[src.pooler.dense_act for src in extra_src_list] if stitch4 else [],
     )
 
 
@@ -452,8 +414,6 @@ def copy_mlm_head(
     src1: Type[BertOnlyMLMHead],
     src2: Type[BertOnlyMLMHead],
     tgt: Type[BertOnlyMLMHead],
-    skip_layernorm: bool,
-    epsilon: float,
     extra_src_list: List[Type[BertOnlyMLMHead]],
 ) -> None:
     """Copy two source BertOnlyMLMHead to the target BertOnlyMLMHead
@@ -462,18 +422,14 @@ def copy_mlm_head(
         src1 (BertOnlyMLMHead): first source BertOnlyMLMHead
         src2 (BertOnlyMLMHead): second source BertOnlyMLMHead
         tgt (BertOnlyMLMHead): target BertOnlyMLMHead
-        skip_layernorm (bool): whether not to stitch layernorms
-        epsilon (float): float number to fill the rest
         extra_src_list (list): third, fourth source BertOnlyMLMHead if needed
     """
-    stitch4 = len(extra_src_list) != 0
     
     # copy BertPredictionHeadTransform
     copy_linear(
         src1.predictions.transform.dense_act,
         src2.predictions.transform.dense_act,
         tgt.predictions.transform.dense_act,
-        epsilon,
         extra_src_list=[src.predictions.transform.dense_act for src in extra_src_list] if stitch4 else [],
     )
     if not skip_layernorm:
@@ -506,14 +462,13 @@ def copy_mlm_head(
 
 
 def make_dummy_model(
-    src1: Type[BertLMHeadModel], tgt: Type[BertLMHeadModel], epsilon: float
+    src1: Type[BertLMHeadModel], tgt: Type[BertLMHeadModel]
 ):
     """
     Make dummy model to which can be stitched with src1 to make tgt
     Args:
         src1 (BertLMHeadModel): source model to stitch
         tgt (BertLMHeadModel): stitched target model
-        epsilon (float): float number to fill dummy model
     """
     dummy_cfg = PretrainedBertConfig(**src1.config.to_dict())
 
@@ -528,9 +483,9 @@ def make_dummy_model(
     # define dummy model
     dummy_model = src1.__class__(dummy_cfg)
 
-    # # update all parameters with epsilon
-    # for p in dummy_model.parameters():
-    #     p.data[:] = epsilon
+    # update all parameters with epsilon
+    for p in dummy_model.parameters():
+        p.data[:] = epsilon
 
     return dummy_model
 
@@ -539,7 +494,7 @@ def stitch(
     src1: Type[BertLMHeadModel],
     src2: Type[BertLMHeadModel],
     tgt: Type[BertLMHeadModel],
-    skip_layernorm: bool,
+    skip_layernorm_flg: bool,
     extra_src_list: List[Type[BertLMHeadModel]],
 ) -> None:
     """
@@ -548,10 +503,15 @@ def stitch(
         src1 (BertLMHeadModel): first source model to stitch
         src2 (BertLMHeadModel or None): second source model to stitch, if None, only copy the first model
         tgt (BertLMHeadModel): stitched target model
-        skip_layernorm (bool): whether not to stitch layernorms
+        skip_layernorm_flg (bool): whether not to stitch layernorms
         extra_src_list (list): third, fourth source models if needed
     """
+    global epsilon, skip_layernorm, stitch4
+    
+    # overwrite global vars
     epsilon = tgt.config.epsilon
+    skip_layernorm = skip_layernorm_flg
+    stitch_4 = len(extra_src_list) != 0
 
     # if only one source model is given, make dummy model with epsilon
     if src2 is None:
@@ -560,16 +520,11 @@ def stitch(
     # check if two models are stitchable
     check_if_stitchable(src1.config, src2.config)
 
-    # check to stitch 4 models
-    stitch_4 = len(extra_src_list) != 0
-
     # copy BertModel
     copy_bert(
         src1.bert,
         src2.bert,
         tgt.bert,
-        skip_layernorm,
-        epsilon,
         extra_src_list=[src.bert for src in extra_src_list] if stitch_4 else [],
     )
 
@@ -578,7 +533,5 @@ def stitch(
         src1.cls,
         src2.cls,
         tgt.cls,
-        skip_layernorm,
-        epsilon,
         extra_src_list=[src.cls for src in extra_src_list] if stitch_4 else [],
     )

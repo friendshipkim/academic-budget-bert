@@ -507,7 +507,7 @@ def stitch_models(args):
         stitch(src_model1.network,
                src_model2.network,
                stitched_model.network,
-               skip_layernorm=args.skip_layernorm,
+               skip_layernorm_flg=args.skip_layernorm,
                extra_src_list=[src_model3.network, src_model4.network])
         del src_model1, src_model2, src_model3, src_model4
 
@@ -518,7 +518,7 @@ def stitch_models(args):
             src_model1.network,
             src_model2.network,
             stitched_model.network,
-            skip_layernorm=args.skip_layernorm,
+            skip_layernorm_flg=args.skip_layernorm,
             extra_src_list=[],
         )
         del src_model1, src_model2

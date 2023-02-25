@@ -472,9 +472,11 @@ def stitch_models(args):
     src_model2 = BasePretrainModel(args)
 
     # checkpoint: OrderedDict with model params
+    logger.info(f"Loading source model 1 from {args.src_model1_path}")
     checkpoint1 = torch.load(args.src_model1_path + "pytorch_model.bin")
     src_model1.network.load_state_dict(checkpoint1)
 
+    logger.info(f"Loading source model 2 from {args.src_model2_path}")
     checkpoint2 = torch.load(args.src_model2_path + "pytorch_model.bin")
     src_model2.network.load_state_dict(checkpoint2)
 
@@ -484,9 +486,11 @@ def stitch_models(args):
         src_model4 = BasePretrainModel(args)
 
         # checkpoint: OrderedDict with model params
+        logger.info(f"Loading source model 3 from {args.src_model3_path}")
         checkpoint3 = torch.load(args.src_model3_path + "pytorch_model.bin")
         src_model3.network.load_state_dict(checkpoint3)
 
+        logger.info(f"Loading source model 4 from {args.src_model4_path}")
         checkpoint4 = torch.load(args.src_model4_path + "pytorch_model.bin")
         src_model4.network.load_state_dict(checkpoint4)
 

@@ -109,13 +109,6 @@ def swish(x):
 
 ACT2FN = {"gelu": F.gelu, "relu": F.relu, "swish": swish, "tanh": F.tanh}
 
-# TODO
-# only when stitching,
-# find everywhere where LinearActivation, RegularLinearActivation, Linear is used
-# replace it to matmul
-# steps: 1. change the modeling.py and see if I can initialize the model
-# 2. change stitch_utils.py
-
 
 class ModularLinear(Module):
     # from torch.nn.Linear
@@ -124,7 +117,7 @@ class ModularLinear(Module):
     in_features: int
     out_features: int
     weight: torch.Tensor
-    
+          
     def __init__(self, in_features: int, out_features: int, bias: bool = True,
                  n_modules: int = 2) -> None:
         super(ModularLinear, self).__init__()
@@ -149,13 +142,26 @@ class ModularLinear(Module):
             bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
             init.uniform_(self.bias, -bound, bound)
 
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        bsz, seq_len, _ = input.size()
-        input = input.reshape(bsz, seq_len, self.n_modules, -1)
-        x = torch.matmul(self.weight, input[..., None]).squeeze(-1)
+    def forward(self, inp: torch.Tensor) -> torch.Tensor:
+        # when input is 2D tensor (bsz x d), eg, after pooling
+        # add dummy seq_len dimension
+        is_input_2d = len(inp.size()) == 2
+        if is_input_2d:
+            inp = inp[:, None, :]
+        
+        bsz, seq_len, _ = inp.size()
+        inp = inp.reshape(bsz, seq_len, self.n_modules, -1)
+
+        # use linear and stack
+        x = torch.stack((
+            F.linear(inp[:, :, 0, :], self.weight[0, :, :]),
+            F.linear(inp[:, :, 1, :], self.weight[1, :, :])
+        ), dim=-2)
+            
         if self.bias is not None:
             x = x + self.bias
-        return x.reshape(bsz, seq_len, -1)
+                
+        return x.reshape(bsz, -1) if is_input_2d else x.reshape(bsz, seq_len, -1)
 
     def extra_repr(self):
         return "in_features={}x{}, out_features={}x{}, bias={}".format(
@@ -215,7 +221,7 @@ class LinearActivation(Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        # TODO: check if init matters for modularization
+        # TODO: check if init matters when modularized
         init.kaiming_uniform_(self.weight, a=math.sqrt(5))
         if self.bias is not None:
             fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
@@ -224,20 +230,34 @@ class LinearActivation(Module):
 
     def forward(self, inp):
         if self.modularize:
-            # inp: bsz, seq_len, 2d
+            # d is modular_in_features here
+            # when input is 2D tensor (bsz x 2d), eg, after pooling, add dummy seq_len dimension
+            is_input_2d = len(inp.size()) == 2
+            if is_input_2d:
+                inp = inp[:, None, :]
+            
+            # inp: [bsz, seq_len, 2d]
             bsz, seq_len, _ = inp.size()
         
-            # inp: bsz, sqe_len, 2, d
+            # inp: [bsz, sqe_len, 2, d]
             inp = inp.reshape(bsz, seq_len, self.n_modules, -1)
         
-            # TODO: compare einsum and torch.matmul performances
-            # self.weight:       2, 4d, d
-            # inp: bsz, seq_len, 2, d, 1
-            # x:   bsz, seq_len, 2, 4d
-            x = torch.matmul(self.weight, inp[..., None]).squeeze(-1)
+            # NOTE: matmul and einsum raise cuda oom
+            # # matmul
+            # # self.weight:       2, 4d, d
+            # # inp: bsz, seq_len, 2, d, 1
+            # # x:   bsz, seq_len, 2, 4d
+            # x = torch.matmul(self.weight, inp[..., None])[..., 0]
             
-            # # or you can use einsum
+            # # einsum
             # x = torch.einsum('bsnh, nmh -> bsnm', inp, self.weight)
+            
+            # use linear and stack
+            x = torch.stack((
+                F.linear(inp[:, :, 0, :], self.weight[0, :, :]),
+                F.linear(inp[:, :, 1, :], self.weight[1, :, :])
+            ), dim=-2)
+                             
         else:
             x = F.linear(inp, self.weight, None)
         
@@ -251,8 +271,15 @@ class LinearActivation(Module):
         else:
             x = self.act_fn(x + self.bias)
         
-        # reshape if modularize
-        return x.reshape(bsz, seq_len, -1) if self.modularize else x
+        # reshape if modularized
+        if self.modularize:
+            # remove dummy dimension
+            if is_input_2d:
+                x = x.reshape(bsz, -1)
+            else:
+                x = x.reshape(bsz, seq_len, -1)
+        
+        return x
 
     def extra_repr(self):
         if self.modularize:
@@ -784,7 +811,8 @@ class BertPooler(nn.Module):
     def forward(self, hidden_states):
         # We "pool" the model by simply taking the hidden state corresponding
         # to the first token.
-        first_token_tensor = hidden_states[:, 0]
+        # first_token_tensor: [bsz, d]
+        first_token_tensor = hidden_states[:, 0, :]
         pooled_output = self.dense_act(first_token_tensor)
         return pooled_output
 
@@ -804,6 +832,7 @@ class BertPredictionHeadTransform(nn.Module):
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
 
     def forward(self, hidden_states):
+        # input is 2D - [# of masked tokens, d]
         hidden_states = self.dense_act(hidden_states)
         if self.config.useLN:
             hidden_states = self.LayerNorm(hidden_states)
@@ -815,29 +844,21 @@ class BertLMPredictionHead(nn.Module):
     def __init__(self, config, bert_model_embedding_weights):
         super(BertLMPredictionHead, self).__init__()
         self.transform = BertPredictionHeadTransform(config)
-        # NOTE: probably use linear instead of Modular for prediction head?
-        if config.modularize:
-            self.decoder = ModularLinear(
-                bert_model_embedding_weights.size(1),
-                bert_model_embedding_weights.size(0),
-                bias=False,
-            )
-            self.bias = nn.Parameter(torch.zeros(2, bert_model_embedding_weights.size(0) // 2))
-        else:
-            self.decoder = nn.Linear(
-                bert_model_embedding_weights.size(1),
-                bert_model_embedding_weights.size(0),
-                bias=False,
-            )
-            self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.size(0)))
-        # TODO: check
-        self.decoder.weight.data = bert_model_embedding_weights.data
+        # NOTE: hidden_dim -> vocab_size, do not modularize
+        self.decoder = nn.Linear(
+            bert_model_embedding_weights.size(1),
+            bert_model_embedding_weights.size(0),
+            bias=False,
+        )
+        self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.size(0)))
+        self.decoder.weight.data[:] = bert_model_embedding_weights.data[:]
         self.sparse_predict = config.sparse_mask_prediction
         if not config.sparse_mask_prediction:
-            self.decoder.bias.data = self.bias.data
+            self.decoder.bias.data[:] = self.bias.data[:]
 
     def forward(self, hidden_states, masked_token_indexes):
         if self.sparse_predict:
+            # transform hidden_states [bsz, seq_len, d] -> [# of masked tokens, d]
             if masked_token_indexes is not None:
                 hidden_states = hidden_states.view(-1, hidden_states.shape[-1])[
                     masked_token_indexes
@@ -1010,6 +1031,7 @@ class BertModel(BertPreTrainedModel):
             input_ids, token_type_ids, skip_ln_dp=skip_ln_dp
         )
 
+        # encoder_output: tuple of length 1
         encoder_output = self.encoder(
             embedding_output,
             extended_attention_mask,
@@ -1018,9 +1040,14 @@ class BertModel(BertPreTrainedModel):
             output_attentions=output_attentions,
             skip_ln_dp=skip_ln_dp,
         )
+        
+        # encoded_layers: list of length 1
         encoded_layers = encoder_output[0]
+        
+        # sequence_output: [bsz, seq_len, d]
         sequence_output = encoded_layers[-1]
 
+        # pooled_output: [bsz, d]
         pooled_output = self.pooler(sequence_output)
 
         if not output_all_encoded_layers:
@@ -1193,6 +1220,8 @@ class BertLMHeadModel(BertPreTrainedModel):
         masked_lm_labels = batch[4]
         checkpoint_activations = False
 
+        # bert_output: tuple of length 2
+        # (encoded_layers: [bsz, seq_len, d], pooled_output: [bsz, d])
         bert_output = self.bert(
             input_ids,
             token_type_ids,
@@ -1200,6 +1229,8 @@ class BertLMHeadModel(BertPreTrainedModel):
             output_all_encoded_layers=False,
             checkpoint_activations=checkpoint_activations,
         )
+        
+        # sequence_output: [bsz, seq_len, d]
         sequence_output = bert_output[0]
 
         if masked_lm_labels is None:

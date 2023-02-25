@@ -20,7 +20,7 @@ from pretraining.configs import PretrainedBertConfig
 
 
 # global vars
-epsilon = 1
+epsilon = 0
 skip_layernorm = False
 stitch4 = False
 

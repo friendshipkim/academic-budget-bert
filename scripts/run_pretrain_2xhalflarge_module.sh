@@ -3,7 +3,7 @@
 # and train the stitched model on set 2/3 
 # Train for ~6k steps with 1 Titan-RTX gpu
 
-export WANDB_MODE=online
+export WANDB_MODE=disabled
 deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --model_type bert-mlm --tokenizer_name bert-large-uncased \
   --hidden_act gelu \
@@ -50,4 +50,5 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --load_tokenizer_locally \
   --do_stitch \
   --src_model1_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-0/0/epoch1000000_step10102/ \
-  --src_model2_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-1/1/epoch1000000_step10010/
+  --src_model2_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-1/1/epoch1000000_step10010/ \
+  --modularize

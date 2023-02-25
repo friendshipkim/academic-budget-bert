@@ -23,6 +23,7 @@ from pretraining.configs import PretrainedBertConfig
 epsilon = 0
 skip_layernorm = False
 stitch4 = False
+modularize = False
 
 
 # TODO: merge this into StitchedBertConfig
@@ -103,29 +104,50 @@ def copy_linear(
         assert None not in (src1.bias, src2.bias, tgt.bias) or not any(
             (src1.bias, src2.bias, tgt.bias)
         )
+              
+        # modular linears - 2 x d x d
+        if modularize:
+            src1_out_dim, src1_in_dim = src1.weight.size()
+            src2_out_dim, src2_in_dim = src2.weight.size()
+            n_modules, tgt_out_dim, tgt_in_dim = tgt.weight.size()
+                     
+            assert n_modules == 2
+            assert tgt_out_dim == src1_out_dim == src2_out_dim
+            assert tgt_in_dim == src1_in_dim == src2_in_dim
+                    
+            # copy weights
+            tgt.weight.data[0, ...] = src1.weight.data
+            tgt.weight.data[1, ...] = src2.weight.data
+                     
+            # If biases exist, copy biases
+            if tgt.bias is not None:
+                tgt.bias.data[0, ...] = src1.bias.data
+                tgt.bias.data[1, ...] = src2.bias.data
+                 
+        # original linears - 2d x 2d
+        else:
+            src1_out_dim, src1_in_dim = src1.weight.size()
+            src2_out_dim, src2_in_dim = src2.weight.size()
+            tgt_out_dim, tgt_in_dim = tgt.weight.size()
 
-        src1_out_dim, src1_in_dim = src1.weight.size()
-        src2_out_dim, src2_in_dim = src2.weight.size()
-        tgt_out_dim, tgt_in_dim = tgt.weight.size()
+            assert tgt_out_dim == src1_out_dim + src2_out_dim
+            assert tgt_in_dim == src1_in_dim + src2_in_dim
 
-        assert tgt_out_dim == src1_out_dim + src2_out_dim
-        assert tgt_in_dim == src1_in_dim + src2_in_dim
+            # Initialize with epsilon
+            tgt.weight.data[:] = epsilon
 
-        # Initialize with epsilon
-        tgt.weight.data[:] = epsilon
+            # # initialize to normal dist
+            # mu, std = 0, 1e-3
+            # tgt.weight.data[:] = torch.randn_like(tgt.weight.data) * std + mu
 
-        # # initialize to normal dist
-        # mu, std = 0, 1e-3
-        # tgt.weight.data[:] = torch.randn_like(tgt.weight.data) * std + mu
+            # Copy weights diagonally
+            tgt.weight.data[:src1_out_dim, :src1_in_dim] = src1.weight.data
+            tgt.weight.data[-src2_out_dim:, -src2_in_dim:] = src2.weight.data
 
-        # Copy weights diagonally
-        tgt.weight.data[:src1_out_dim, :src1_in_dim] = src1.weight.data
-        tgt.weight.data[-src2_out_dim:, -src2_in_dim:] = src2.weight.data
-
-        # If biases exist, copy biases
-        if tgt.bias is not None:
-            tgt.bias.data[:src1_out_dim] = src1.bias.data
-            tgt.bias.data[-src2_out_dim:] = src2.bias.data
+            # If biases exist, copy biases
+            if tgt.bias is not None:
+                tgt.bias.data[:src1_out_dim] = src1.bias.data
+                tgt.bias.data[-src2_out_dim:] = src2.bias.data
 
 
 def copy_layernorm(
@@ -506,10 +528,11 @@ def stitch(
         skip_layernorm_flg (bool): whether not to stitch layernorms
         extra_src_list (list): third, fourth source models if needed
     """
-    global epsilon, skip_layernorm, stitch4
+    global epsilon, skip_layernorm, stitch4, modularize
     
     # overwrite global vars
     epsilon = tgt.config.epsilon
+    modularize = tgt.config.modularize
     skip_layernorm = skip_layernorm_flg
     stitch_4 = len(extra_src_list) != 0
 

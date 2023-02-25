@@ -17,7 +17,7 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --lr 1e-3 \
   --train_batch_size 4096 \
   --train_micro_batch_size_per_gpu 128 \
-  --lr_schedule time \
+  --lr_schedule constant_step \
   --curve linear \
   --warmup_proportion 0.06 \
   --gradient_clipping 0.0 \

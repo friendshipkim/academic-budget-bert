@@ -130,7 +130,7 @@ class PretrainScriptParamsArguments:
     )
 
     validation_shards: Optional[int] = field(
-        default=1, metadata={"help": "Number of validation shards"}
+        default=5, metadata={"help": "Number of validation shards"}
     )
 
     add_nsp: Optional[bool] = field(

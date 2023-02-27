@@ -85,6 +85,7 @@ class BasePretrainModel(object):
                 # add args.modularize to model config
                 if model_type == "stitched-bert-mlm":
                     args.model_config["modularize"] = args.modularize
+                    args.model_config["add_blend_layer"] = args.add_blend_layer
                 config = config_cls(**args.model_config)
                 config = self._init_vocab_size(config)
             else:

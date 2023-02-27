@@ -66,6 +66,7 @@ class PretrainedBertConfig(BertConfig):
         self.layer_norm_type = layer_norm_type
         self.layernorm_embedding = layernorm_embedding
         self.modularize = kwargs.get("modularize", False)
+        self.add_blend_layer = kwargs.get("add_blend_layer", False)
 
 
 class StitchedPretrainedBertConfig(PretrainedBertConfig):
@@ -81,6 +82,7 @@ class StitchedPretrainedBertConfig(PretrainedBertConfig):
         self.num_attention_heads = self.num_attention_heads * 2
         self.epsilon = kwargs.get("epsilon", 0)
         self.modularize = kwargs.get("modularize", False)
+        self.add_blend_layer = kwargs.get("add_blend_layer", False)
 
 
 class PretrainedRobertaConfig(PretrainedBertConfig):

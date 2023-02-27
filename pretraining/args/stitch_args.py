@@ -43,3 +43,6 @@ class StitchArguments:
     modularize: Optional[bool] = field(
         default=False, metadata={"help": "whether to use modular linear layers (2d x 2d -> 2 x d x d)"}
     )
+    add_blend_layer: Optional[bool] = field(
+        default=False, metadata={"help": "for modularized model, whther to add a blend layer at the bottom of BertLayer"}
+    )

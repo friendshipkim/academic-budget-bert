@@ -62,7 +62,7 @@ spec:
         operator: Exists
         effect: NoSchedule
     nodeSelector:
-      gpu: nvidia-a40
+      gpu: nvidia-a100
     container:
       env:
         - name: OP_S3_STORAGE

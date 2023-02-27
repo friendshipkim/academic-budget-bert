@@ -2,7 +2,7 @@
 
 # lrs=(0.0015 0.001 0.0008)
 lrs=(0.0015)
-max_steps=(10000)
+max_steps=(10000 15000)
 warmup_fraction=(0.25)
 wds=(0.05)
 # dataset_paths=(/opt/ml/data/set0/ /opt/ml/data/set1/ /opt/ml/data/set2/ /opt/ml/data/set3/)

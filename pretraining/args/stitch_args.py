@@ -46,3 +46,6 @@ class StitchArguments:
     add_blend_layer: Optional[bool] = field(
         default=False, metadata={"help": "for modularized model, whther to add a blend layer at the bottom of BertLayer"}
     )
+    overlap: Optional[bool] = field(
+        default=False, metadata={"help": "increase hidden size to 5h too add some blend parameters"}
+    )

@@ -24,6 +24,7 @@ epsilon = 0
 skip_layernorm = False
 stitch4 = False
 modularize = False
+overlap = False
 
 
 # TODO: merge this into StitchedBertConfig
@@ -130,8 +131,12 @@ def copy_linear(
             src2_out_dim, src2_in_dim = src2.weight.size()
             tgt_out_dim, tgt_in_dim = tgt.weight.size()
 
-            assert tgt_out_dim == src1_out_dim + src2_out_dim
-            assert tgt_in_dim == src1_in_dim + src2_in_dim
+            if overlap:
+                assert tgt_out_dim <= src1_out_dim + src2_out_dim
+                assert tgt_in_dim <= src1_in_dim + src2_in_dim
+            else:
+                assert tgt_out_dim == src1_out_dim + src2_out_dim
+                assert tgt_in_dim == src1_in_dim + src2_in_dim
 
             # Initialize with epsilon
             tgt.weight.data[:] = epsilon
@@ -146,8 +151,21 @@ def copy_linear(
 
             # If biases exist, copy biases
             if tgt.bias is not None:
-                tgt.bias.data[:src1_out_dim] = src1.bias.data
-                tgt.bias.data[-src2_out_dim:] = src2.bias.data
+                if overlap:
+                    src1_out_gap = tgt_out_dim - src1_out_dim
+                    src2_out_gap = tgt_out_dim - src2_out_dim
+                    
+                    # overlap biases
+                    tgt.bias.data[:src1_out_dim] = src1.bias.data
+                    tgt.bias.data[-src2_out_dim:] = src2.bias.data
+                    
+                    assert tgt.bias.data[src1_out_gap:-src2_out_gap].shape == src1.bias.data[src1_out_gap:].shape
+                    assert tgt.bias.data[src1_out_gap:-src2_out_gap].shape == src2.bias.data[:-src2_out_gap].shape
+                    
+                    tgt.bias.data[src1_out_gap:-src2_out_gap] = (src1.bias.data[src1_out_gap:] + src2.bias.data[:-src2_out_gap]) / 2
+                else:
+                    tgt.bias.data[:src1_out_dim] = src1.bias.data
+                    tgt.bias.data[-src2_out_dim:] = src2.bias.data
 
 
 def copy_layernorm(
@@ -528,11 +546,12 @@ def stitch(
         skip_layernorm_flg (bool): whether not to stitch layernorms
         extra_src_list (list): third, fourth source models if needed
     """
-    global epsilon, skip_layernorm, stitch4, modularize
+    global epsilon, skip_layernorm, stitch4, modularize, overlap
     
     # overwrite global vars
     epsilon = tgt.config.epsilon
     modularize = tgt.config.modularize
+    overlap = tgt.config.overlap
     skip_layernorm = skip_layernorm_flg
     stitch_4 = len(extra_src_list) != 0
 

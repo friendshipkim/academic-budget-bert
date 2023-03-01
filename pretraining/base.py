@@ -86,6 +86,7 @@ class BasePretrainModel(object):
                 if model_type == "stitched-bert-mlm":
                     args.model_config["modularize"] = args.modularize
                     args.model_config["add_blend_layer"] = args.add_blend_layer
+                    args.model_config["overlap"] = args.overlap
                 config = config_cls(**args.model_config)
                 config = self._init_vocab_size(config)
             else:

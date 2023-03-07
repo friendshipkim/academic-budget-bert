@@ -49,6 +49,10 @@ from timeit import default_timer as get_now
 from pretraining.args.stitch_args import StitchArguments
 from pretraining.stitch_utils import stitch
 
+# profiling
+from deepspeed.profiling.flops_profiler import FlopsProfiler
+from deepspeed.profiling.flops_profiler import get_model_profile
+
 import deepspeed
 import numpy as np
 import torch
@@ -159,6 +163,14 @@ def train(
     )
 
     pretrain_dataset_provider.prefetch_shard(index + 1)
+    
+    # profiler
+    if args.profile_model:
+        prof = FlopsProfiler(model.network.module)
+        profile_steps = [10, 20, 30]
+        print_profile = True
+    else:
+        profile_steps = []
 
     model.train()
 
@@ -181,8 +193,40 @@ def train(
 
             batch = pretrain_dataset_provider.get_batch(batch_index)
             batch = tuple(t.to(args.device) for t in batch)  # Move to GPU
+            
+            # for model profiling
+            if args.profile_model and (batch_index_number in profile_steps):
+                prof.start_profile()
 
             total_loss = model.forward(batch)
+            
+            # for model profiling
+            # if using multi nodes, check global_rank == 0 as well
+            if args.profile_model and (batch_index_number in profile_steps):
+                # batch - tuple length of 5
+                # (bsz x 1, bsz x seq_len, bsz x seq_len, bsz x seq_len, bsz x seq_len)
+
+                def input_constructor(batch):
+                    return batch
+                    
+                prof.stop_profile()
+                # macs = prof.get_total_macs() # current deepspeed doesn't support this
+                params = prof.get_total_params()
+                flops = prof.get_total_flops()
+                if print_profile:
+                    prof.print_model_profile(profile_step=batch_index_number)
+                prof.end_profile()
+                               
+                # profile = get_model_profile(
+                #     model.network.module,
+                #     input_res=(batch,),
+                #     input_constructor=input_constructor,
+                #     print_profile=True,
+                #     detailed=True,
+                # )
+                               
+                if batch_index_number == profile_steps[-1]:
+                    exit()
 
             unscaled_loss = total_loss.item()
             current_data_sample_count += (args.train_micro_batch_size_per_gpu *
@@ -479,7 +523,7 @@ def stitch_models(args):
     logger.info(f"Loading source model 2 from {args.src_model2_path}")
     checkpoint2 = torch.load(args.src_model2_path + "pytorch_model.bin")
     src_model2.network.load_state_dict(checkpoint2)
-
+       
     # stitch 4 models
     if stitch_4:
         src_model3 = BasePretrainModel(args)

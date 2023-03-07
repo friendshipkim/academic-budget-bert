@@ -49,3 +49,6 @@ class StitchArguments:
     overlap: Optional[int] = field(
         default=8, metadata={"help": "decrease the intermediate hidden size from 8x to the given integer too add some blend parameters"}
     )
+    profile_model: Optional[bool] = field(
+        default=False, metadata={"help": "whether to profile a model, evaluate on 3 batches [10, 20, 30] by default"}
+    )

@@ -1,7 +1,7 @@
-# Script to train a 2xhalflarge models
+# Script to train a 2xhalflarge models modularized version
 # Stitch two half-large models trained on set 0/1
 # and train the stitched model on set 2/3 
-# Train for ~6k steps with 1 Titan-RTX gpu
+# to add a ln before blend layer, set --add_blend_layer argument
 
 export WANDB_MODE=online
 deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
@@ -17,7 +17,7 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --lr 1e-3 \
   --train_batch_size 4096 \
   --train_micro_batch_size_per_gpu 128 \
-  --lr_schedule constant_step \
+  --lr_schedule step \
   --curve linear \
   --warmup_proportion 0.06 \
   --gradient_clipping 0.0 \

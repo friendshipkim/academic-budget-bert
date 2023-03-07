@@ -2,7 +2,7 @@
 # Train for 10k steps with 1 gpu
 
 export WANDB_MODE=online
-deepspeed --include localhost:1 --master_port 29501 run_pretraining.py \
+deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --model_type bert-mlm --tokenizer_name bert-large-uncased \
   --hidden_act gelu \
   --hidden_size 512 \
@@ -15,7 +15,7 @@ deepspeed --include localhost:1 --master_port 29501 run_pretraining.py \
   --lr 1e-3 \
   --train_batch_size 4096 \
   --train_micro_batch_size_per_gpu 256 \
-  --lr_schedule constant_step \
+  --lr_schedule step \
   --curve linear \
   --warmup_proportion 0.06 \
   --gradient_clipping 0.0 \
@@ -31,7 +31,7 @@ deepspeed --include localhost:1 --master_port 29501 run_pretraining.py \
   --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/set0 \
   --output_dir /n/tata_ddos_ceph/woojeong/saved_models/pretrain/ \
   --job_name halflarge \
-  --current_run_id set0-10ksteps \
+  --current_run_id set0-10ksteps-5val \
   --project_name budget-bert-pretraining \
   --validation_epochs 3 \
   --validation_epochs_begin 1 \

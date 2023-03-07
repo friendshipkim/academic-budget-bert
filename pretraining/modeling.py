@@ -597,6 +597,7 @@ class BertLayer(nn.Module):
         self.intermediate = BertIntermediate(config)
         self.output = BertOutput(config)
         if self.config.modularize and self.config.add_blend_layer:
+            # self.blend_ln = BertLayerNorm(config.hidden_size, eps=1e-12)
             self.blend_layer = nn.Linear(config.hidden_size, config.hidden_size, bias=True)
 
     def maybe_layer_norm(self, hidden_states, layer_norm, current_ln_mode):
@@ -671,6 +672,7 @@ class BertLayer(nn.Module):
                 
             # add one more linear layer to blend two models
             if self.config.modularize and self.config.add_blend_layer:
+                # blend_output = self.blend_ln(layer_output)
                 blend_output = self.blend_layer(layer_output)
                 layer_output = layer_output + blend_output
 

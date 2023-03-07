@@ -67,7 +67,7 @@ class PretrainedBertConfig(BertConfig):
         self.layernorm_embedding = layernorm_embedding
         self.modularize = kwargs.get("modularize", False)
         self.add_blend_layer = kwargs.get("add_blend_layer", False)
-        self.overlap = kwargs.get("overlap", False)
+        self.overlap = kwargs.get("overlap", 8)
 
 
 class StitchedPretrainedBertConfig(PretrainedBertConfig):
@@ -79,9 +79,9 @@ class StitchedPretrainedBertConfig(PretrainedBertConfig):
         # to use two different architectures, change it to take two BertConfigs
         self.is_stitched = True
         self.hidden_size = self.hidden_size * 2
-        self.overlap = kwargs.get("overlap", False)
-        if self.overlap:
-            self.intermediate_size = self.intermediate_size // 4 * 5
+        self.overlap = kwargs.get("overlap", 8)
+        if self.overlap != 8:
+            self.intermediate_size = self.intermediate_size // 4 * self.overlap
         else:
             self.intermediate_size = self.intermediate_size * 2
         self.num_attention_heads = self.num_attention_heads * 2

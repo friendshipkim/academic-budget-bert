@@ -98,5 +98,6 @@ if __name__ == "__main__":
     parser.add_argument("--dir")
     parser.add_argument("--out-dir")
     args = parser.parse_args()
+    os.makedirs(args.out_dir, exist_ok=True)
     files = glob.glob(os.path.join(args.dir, "*"))
     main(files, args.out_dir)

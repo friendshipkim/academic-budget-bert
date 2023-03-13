@@ -1,5 +1,11 @@
 # Stitching pretrained models
-## 1. Split enwiki books dataset
+## 1-0. Balance enwiki books dataset to equal lengths
+In order to avoid the training being stuck after one epoch, re-balance the shards on disk. (Source: https://gist.github.com/iamsimha/e00b468c082ffe49210d3804e10dc85f) Run the following command:
+```bash
+python balance_shards.py --dir {path to the original .hdf5 files} --out-dir {path to the balanced .hdf5 files}
+```
+
+## 1-1. Split enwiki books dataset
 run the following command
 ```bash
 python workspace/split_data.py --data-path {path to enwiki books} --split 4

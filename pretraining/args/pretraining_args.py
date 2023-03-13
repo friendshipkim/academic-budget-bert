@@ -174,7 +174,7 @@ class PretrainScriptParamsArguments:
         default=32, metadata={"help": "train_micro_batch_size_per_gpu"}
     )
     num_epochs: Optional[int] = field(
-        default=1000000, metadata={"help": "Number of training epochs"}
+        default=1000000000, metadata={"help": "Number of training epochs"}
     )
 
     lr: Optional[float] = field(default=0.011, metadata={"help": "lr"})

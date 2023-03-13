@@ -1,7 +1,7 @@
 # Script to train a 2xhalflarge models
-# Stitch two half-large models trained on set 0/1 for 10k steps
+# Stitch two half-large models trained on set 0/1 for 15k steps
 # and train the stitched model on set 2/3 
-# Train for 20k steps with 4 Titan-RTX gpu
+# Train for ~17.5k steps with 4 Titan-RTX gpus
 
 export WANDB_MODE=online
 export CUDA_VISIBLE_DEVICES=0,1,2,3
@@ -28,14 +28,14 @@ deepspeed --num_gpus 4 run_pretraining.py \
   --adam_beta1 0.9 \
   --adam_beta2 0.98 \
   --adam_eps 1e-6 \
-  --max_steps 20000 \
-  --num_warmup_steps 1200 \
+  --max_steps 17500 \
+  --num_warmup_steps 1050 \
   --print_steps 100 \
   --num_epochs_between_checkpoints 10000 \
   --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/set23_balanced/ \
   --output_dir /n/tata_ddos_ceph/woojeong/saved_models/pretrain/ \
-  --job_name 2xhalflarge-20ksteps \
-  --current_run_id set23-20ksteps-5val \
+  --job_name 2xhalflarge-10ksteps \
+  --current_run_id set23-17ksteps-5val \
   --project_name budget-bert-pretraining \
   --validation_epochs 3 \
   --validation_epochs_begin 1 \
@@ -51,6 +51,6 @@ deepspeed --num_gpus 4 run_pretraining.py \
   --fp16 \
   --load_tokenizer_locally \
   --do_stitch \
-  --src_model1_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-set0-10ksteps-5val/set0-10ksteps-5val/epoch1000000_step10022/ \
-  --src_model2_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-set1-10ksteps-5val/set1-10ksteps-5val/epoch1000000_step10002/ \
+  --src_model1_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-set0-15ksteps-5val/set0-15ksteps-5val/epoch1000000_step15025/ \
+  --src_model2_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-set1-15ksteps-5val/set1-15ksteps-5val/epoch1000000_step15030/ \
   --record_gradient_norm

@@ -52,3 +52,6 @@ class StitchArguments:
     profile_model: Optional[bool] = field(
         default=False, metadata={"help": "whether to profile a model, evaluate on 3 batches [10, 20, 30] by default"}
     )
+    record_gradient_norm: Optional[bool] = field(
+        default=False, metadata={"help": "for stitched model, whether to record l2 norm of gradients of pretrained/epsilon"}
+    )

@@ -177,7 +177,20 @@ def train(
     all_step_time = 0.0
     eval_loss = None
     scale_counter_at_1 = 0
-
+    
+    # to record the norm of gradients
+    if args.record_gradient_norm:
+        gradient_norm_dict = {}
+        record_layers = []
+        record_keys = ["query", "key", "value", "dense", "dense_act"]
+        for n, p in model.network.named_parameters():
+            record_flg = any(key in n for key in record_keys) and ("weight" in n)
+            if record_flg and p.requires_grad:
+                record_layers.append(n)
+        
+        # pooler is not used
+        record_layers.remove("module.bert.pooler.dense_act.weight")
+    
     for batch_index_number, batch_index in enumerate(tqdm(dataset_iterator, smoothing=1)):
 
         if batch_index_number > args.max_steps_per_epoch:
@@ -216,21 +229,21 @@ def train(
                 if print_profile:
                     prof.print_model_profile(profile_step=batch_index_number)
                 prof.end_profile()
-                               
+                                
                 # profile = get_model_profile(
                 #     model.network.module,
                 #     input_res=(batch,),
-                #     input_constructor=input_constructor,
+                #     input_constructor=lambda x: x,
                 #     print_profile=True,
                 #     detailed=True,
                 # )
-                               
+                                               
                 if batch_index_number == profile_steps[-1]:
                     exit()
 
             unscaled_loss = total_loss.item()
             current_data_sample_count += (args.train_micro_batch_size_per_gpu *
-                                          dist.get_world_size())
+                                            dist.get_world_size())
 
             # Prefetch training data
             pretrain_dataset_provider.prefetch_batch()
@@ -239,17 +252,45 @@ def train(
 
             total_loss = None
 
-            if model.network.is_gradient_accumulation_boundary():
+            if model.network.is_gradient_accumulation_boundary():              
+                if args.record_gradient_norm:
+                    # record gradient norm of pretrained/epsilon params
+                    for n, p in model.network.named_parameters():
+                        if n in record_layers and (p.grad is not None):
+                            grad = p.grad.detach()
+                            out_dim, in_dim = grad.size()
+                            out_dim_half, in_dim_half = out_dim // 2, in_dim // 2
+                            
+                            # TODO: extend it to different stitching settings
+                            norm_pretrained = torch.stack([
+                                grad[:out_dim_half, :in_dim_half],
+                                grad[-out_dim_half:, -in_dim_half:]
+                            ], dim=0).norm(p=2).item()
+                            gradient_norm_dict[n + ".pretrained"] = norm_pretrained
+                            
+                            norm_epsilon = torch.stack([
+                                grad[:out_dim_half, -in_dim_half:],
+                                grad[-out_dim_half:, :in_dim_half]
+                            ], dim=0).norm(p=2).item()
+                            gradient_norm_dict[n + ".epsilon"] = norm_epsilon
+                else:
+                    gradient_norm_dict = None
+                               
                 report_metrics(
                     args,
                     lr_scheduler.get_last_lr(),
                     unscaled_loss,
                     global_step,
                     current_data_sample_count,
+                    gradient_norm_dict
                 )
 
                 model.network.step()
                 global_step += 1
+                
+                # initialize gradient_norm_dict
+                if args.record_gradient_norm:
+                    gradient_norm_dict = {}
 
                 # HACK: add to scale counter if stuck at scale 1 (to detect possible NaN (diverged model))
                 if args.fp16 and optimizer.cur_scale == 1:
@@ -339,7 +380,7 @@ def should_run_validation(time_diff, args, epoch):
     return should_do_validation
 
 
-def report_metrics(args, lr, loss, step, data_sample_count):
+def report_metrics(args, lr, loss, step, data_sample_count, gradient_norm_dict=None):
     current_lr = lr[0] if type(lr) == list else lr
     if master_process(args):
         if _has_wandb:
@@ -354,6 +395,9 @@ def report_metrics(args, lr, loss, step, data_sample_count):
                 "Train/total_samples": data_sample_count,
             }
             wandb.log(samp_info, commit=False)
+            
+            if gradient_norm_dict is not None:
+                wandb.log(gradient_norm_dict, commit=False)
 
     if (step + 1) % args.print_steps == 0 and master_process(args):
         logger.info(

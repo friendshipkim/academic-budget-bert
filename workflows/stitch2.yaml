@@ -23,6 +23,10 @@ spec:
       value: /opt/ml/data/total/
     - name: wd
       value: 0.01
+    - name: src_model1_path
+      value: /opt/ml/data/saved_models/pretrain/halflarge-86/set01-10k/epoch1000000_step10035/
+    - name: src_model2_path
+      value: /opt/ml/data/saved_models/pretrain/halflarge-62/set23-10k/epoch1000000_step10004
   volumes:
   - name: argo-aws-cred
     configMap:
@@ -57,6 +61,10 @@ spec:
         value: "{{workflow.parameters.dataset_path}}"
       - name: wd
         value: "{{workflow.parameters.wd}}"
+      - name: src_model1_path
+        value: "{{workflow.parameters.src_model1_path}}"
+      - name: src_model2_path
+        value: "{{workflow.parameters.src_model2_path}}"
     tolerations:
       - key: nvidia.com/gpu
         operator: Exists
@@ -94,7 +102,7 @@ spec:
           git stash;
           git fetch;
           git switch -f gals_changes;
-          bash scripts/run_pretrain_2xhalflarge_gal.sh --lr {{inputs.parameters.lr}} --num_warmup_steps {{inputs.parameters.warmup}} --max_steps {{inputs.parameters.steps}} --seed {{inputs.parameters.seed}}  --dataset_path {{inputs.parameters.dataset_path}} --weight_decay {{inputs.parameters.wd}};
+          bash scripts/run_pretrain_2xhalflarge_gal.sh --lr {{inputs.parameters.lr}} --num_warmup_steps {{inputs.parameters.warmup}} --max_steps {{inputs.parameters.steps}} --seed {{inputs.parameters.seed}}  --dataset_path {{inputs.parameters.dataset_path}} --weight_decay {{inputs.parameters.wd}} --src_model1_path {{inputs.parameters.src_model1_path}} --src_model2_path {{inputs.parameters.src_model2_path}};
       volumeMounts:
       - name: argo-aws-cred
         mountPath: /home/me.docker/.aws/credentials

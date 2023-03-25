@@ -86,10 +86,10 @@ def copy_linear(
         assert tgt_in_dim == src1_in_dim + src3_in_dim
 
         # Copy weights
-        tgt.weight.data[:src1_out_dim, :src1_in_dim] = src1.weight.data
-        tgt.weight.data[-src2_out_dim:, :src2_in_dim] = src2.weight.data
-        tgt.weight.data[:src3_out_dim, -src3_in_dim:] = src3.weight.data
-        tgt.weight.data[-src4_out_dim:, -src4_in_dim:] = src4.weight.data
+        tgt.weight.data[:src1_out_dim, :src1_in_dim] = src1.weight.data / 2
+        tgt.weight.data[-src2_out_dim:, :src2_in_dim] = src2.weight.data / 2 
+        tgt.weight.data[:src3_out_dim, -src3_in_dim:] = src3.weight.data / 2
+        tgt.weight.data[-src4_out_dim:, -src4_in_dim:] = src4.weight.data / 2 
 
         # If biases exist, copy biases
         if tgt.bias is not None:

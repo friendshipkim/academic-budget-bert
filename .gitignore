@@ -5,3 +5,4 @@ finetuning*
 wandb
 runs
 profiles
+*.log

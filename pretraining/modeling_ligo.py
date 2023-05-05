@@ -108,86 +108,17 @@ def swish(x):
 
 
 ACT2FN = {"gelu": F.gelu, "relu": F.relu, "swish": swish, "tanh": F.tanh}
-
-
-class ModularLinear(Module):
-    # from torch.nn.Linear
-    # https://pytorch.org/docs/stable/_modules/torch/nn/modules/linear.html#Linear
-    __constants__ = ['in_features', 'out_features']
-    in_features: int
-    out_features: int
-    weight: torch.Tensor
-          
-    def __init__(self, in_features: int, out_features: int, bias: bool = True,
-                 n_modules: int = 2) -> None:
-        super(ModularLinear, self).__init__()
-        self.n_modules = n_modules
-        self.modular_in_features = in_features // n_modules
-        self.modular_out_features = out_features // n_modules
-        
-        self.weight = Parameter(torch.Tensor(n_modules, self.modular_out_features, self.modular_in_features))
-        if bias:
-            self.bias = Parameter(torch.Tensor(n_modules, self.modular_out_features))
-        else:
-            self.register_parameter("bias", None)
-        self.reset_parameters()
-
-    def reset_parameters(self) -> None:
-        # Setting a=sqrt(5) in kaiming_uniform is the same as initializing with
-        # uniform(-1/sqrt(in_features), 1/sqrt(in_features)). For details, see
-        # https://github.com/pytorch/pytorch/issues/57109
-        init.kaiming_uniform_(self.weight, a=math.sqrt(5))
-        if self.bias is not None:
-            fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
-            bound = 1 / math.sqrt(fan_in) if fan_in > 0 else 0
-            init.uniform_(self.bias, -bound, bound)
-
-    def forward(self, inp: torch.Tensor) -> torch.Tensor:
-        # when input is 2D tensor (bsz x d), eg, after pooling
-        # add dummy seq_len dimension
-        is_input_2d = len(inp.size()) == 2
-        if is_input_2d:
-            inp = inp[:, None, :]
-        
-        bsz, seq_len, _ = inp.size()
-        inp = inp.reshape(bsz, seq_len, self.n_modules, -1)
-
-        # use linear and stack
-        x = torch.stack((
-            F.linear(inp[:, :, 0, :], self.weight[0, :, :]),
-            F.linear(inp[:, :, 1, :], self.weight[1, :, :])
-        ), dim=-2)
-            
-        if self.bias is not None:
-            x = x + self.bias
-                
-        return x.reshape(bsz, -1) if is_input_2d else x.reshape(bsz, seq_len, -1)
-
-    def extra_repr(self):
-        return "in_features={}x{}, out_features={}x{}, bias={}".format(
-            self.n_modules, self.modular_in_features,
-            self.n_modules, self.modular_out_features,
-            self.bias is not None
-        )
     
 
 class LinearActivation(Module):
     r"""Fused Linear and activation Module."""
     __constants__ = ["bias"]
 
-    def __init__(self, in_features, out_features, act="gelu", bias=True, modularize=False, n_modules=2):
+    def __init__(self, in_features, out_features, act="gelu", bias=True):
         super(LinearActivation, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
         
-        # for modularized linear
-        self.modularize = modularize
-        if self.modularize:
-            # in/out dimensions of a module
-            self.n_modules = n_modules
-            self.modular_in_features = in_features // n_modules
-            self.modular_out_features = out_features // n_modules
-            
         self.fused_gelu = False
         self.fused_tanh = False
         self.fused_relu = False
@@ -206,22 +137,14 @@ class LinearActivation(Module):
             self.act_fn = act
         
         # init weight/bias
-        if self.modularize:
-            self.weight = Parameter(torch.Tensor(n_modules, self.modular_out_features, self.modular_in_features))
-            if bias:
-                self.bias = Parameter(torch.Tensor(n_modules, self.modular_out_features))
-            else:
-                self.register_parameter("bias", None)
+        self.weight = Parameter(torch.Tensor(out_features, in_features))
+        if bias:
+            self.bias = Parameter(torch.Tensor(out_features))
         else:
-            self.weight = Parameter(torch.Tensor(out_features, in_features))
-            if bias:
-                self.bias = Parameter(torch.Tensor(out_features))
-            else:
-                self.register_parameter("bias", None)
+            self.register_parameter("bias", None)
         self.reset_parameters()
 
     def reset_parameters(self):
-        # TODO: check if init matters when modularized
         init.kaiming_uniform_(self.weight, a=math.sqrt(5))
         if self.bias is not None:
             fan_in, _ = init._calculate_fan_in_and_fan_out(self.weight)
@@ -229,37 +152,7 @@ class LinearActivation(Module):
             init.uniform_(self.bias, -bound, bound)
 
     def forward(self, inp):
-        if self.modularize:
-            # d is modular_in_features here
-            # when input is 2D tensor (bsz x 2d), eg, after pooling, add dummy seq_len dimension
-            is_input_2d = len(inp.size()) == 2
-            if is_input_2d:
-                inp = inp[:, None, :]
-            
-            # inp: [bsz, seq_len, 2d]
-            bsz, seq_len, _ = inp.size()
-        
-            # inp: [bsz, sqe_len, 2, d]
-            inp = inp.reshape(bsz, seq_len, self.n_modules, -1)
-        
-            # NOTE: matmul and einsum raise cuda oom
-            # # matmul
-            # # self.weight:       2, 4d, d
-            # # inp: bsz, seq_len, 2, d, 1
-            # # x:   bsz, seq_len, 2, 4d
-            # x = torch.matmul(self.weight, inp[..., None])[..., 0]
-            
-            # # einsum
-            # x = torch.einsum('bsnh, nmh -> bsnm', inp, self.weight)
-            
-            # use linear and stack
-            x = torch.stack((
-                F.linear(inp[:, :, 0, :], self.weight[0, :, :]),
-                F.linear(inp[:, :, 1, :], self.weight[1, :, :])
-            ), dim=-2)
-                             
-        else:
-            x = F.linear(inp, self.weight, None)
+        x = F.linear(inp, self.weight, None)
         
         # bias + activation
         if self.fused_gelu:
@@ -271,40 +164,20 @@ class LinearActivation(Module):
         else:
             x = self.act_fn(x + self.bias)
         
-        # reshape if modularized
-        if self.modularize:
-            # remove dummy dimension
-            if is_input_2d:
-                x = x.reshape(bsz, -1)
-            else:
-                x = x.reshape(bsz, seq_len, -1)
-        
         return x
 
     def extra_repr(self):
-        if self.modularize:
-            return "in_features={}x{}, out_features={}x{}, bias={}".format(
-                self.n_modules, self.modular_in_features,
-                self.n_modules, self.modular_out_features,
-                self.bias is not None
-            )  
-        else:
-            return "in_features={}, out_features={}, bias={}".format(
-                self.in_features, self.out_features, self.bias is not None
-            )
+        return "in_features={}, out_features={}, bias={}".format(
+            self.in_features, self.out_features, self.bias is not None
+        )
 
 
 class RegularLinearActivation(Module):
     """Regular Linear activation module with"""
 
-    def __init__(self, in_features, out_features, act="gelu", modularize=False, n_modules=2):
+    def __init__(self, in_features, out_features, act="gelu"):
         super(RegularLinearActivation, self).__init__()
-        # for modularized linear
-        self.modularize = modularize
-        if self.modularize:
-            self.dense = ModularLinear(in_features, out_features, n_modules=n_modules)
-        else:
-            self.dense = nn.Linear(in_features, out_features)
+        self.dense = nn.Linear(in_features, out_features)
         if isinstance(act, str) or (
             sys.version_info[0] == 2 and isinstance(act, unicode_literals)
         ):
@@ -453,14 +326,9 @@ class BertSelfAttention(nn.Module):
         # all_head_size - stitch: 2d, regular: d
         self.all_head_size = self.num_attention_heads * self.attention_head_size
 
-        if config.modularize:
-            self.query = ModularLinear(config.hidden_size, self.all_head_size)
-            self.key = ModularLinear(config.hidden_size, self.all_head_size)
-            self.value = ModularLinear(config.hidden_size, self.all_head_size)
-        else:
-            self.query = nn.Linear(config.hidden_size, self.all_head_size)
-            self.key = nn.Linear(config.hidden_size, self.all_head_size)
-            self.value = nn.Linear(config.hidden_size, self.all_head_size)
+        self.query = nn.Linear(config.hidden_size, self.all_head_size)
+        self.key = nn.Linear(config.hidden_size, self.all_head_size)
+        self.value = nn.Linear(config.hidden_size, self.all_head_size)
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
         self.softmax = nn.Softmax(dim=-1)
@@ -517,10 +385,7 @@ class BertSelfAttention(nn.Module):
 class BertSelfOutput(nn.Module):
     def __init__(self, config):
         super(BertSelfOutput, self).__init__()
-        if config.modularize:
-            self.dense = ModularLinear(config.hidden_size, config.hidden_size)
-        else:
-            self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
         self.dense.bert_output_layer = True
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
@@ -560,7 +425,7 @@ class BertIntermediate(nn.Module):
         else:
             linear_layer = RegularLinearActivation
         self.dense_act = linear_layer(
-            config.hidden_size, config.intermediate_size, act=config.hidden_act, modularize=config.modularize
+            config.hidden_size, config.intermediate_size, act=config.hidden_act,
         )
 
     def forward(self, hidden_states):
@@ -571,10 +436,7 @@ class BertIntermediate(nn.Module):
 class BertOutput(nn.Module):
     def __init__(self, config):
         super(BertOutput, self).__init__()
-        if config.modularize:
-            self.dense = ModularLinear(config.intermediate_size, config.hidden_size)
-        else:
-            self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
+        self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
         self.dense.bert_output_layer = True
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
@@ -596,9 +458,6 @@ class BertLayer(nn.Module):
         self.PostAttentionLayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
         self.intermediate = BertIntermediate(config)
         self.output = BertOutput(config)
-        if self.config.modularize and self.config.add_blend_layer:
-            # self.blend_ln = BertLayerNorm(config.hidden_size, eps=1e-12)
-            self.blend_layer = nn.Linear(config.hidden_size, config.hidden_size, bias=True)
 
     def maybe_layer_norm(self, hidden_states, layer_norm, current_ln_mode):
         if self.config.useLN and self.config.encoder_ln_mode in current_ln_mode:
@@ -669,12 +528,6 @@ class BertLayer(nn.Module):
                 layer_output = self.maybe_layer_norm(
                     layer_output, self.PostAttentionLayerNorm, "post-ln"
                 )
-                
-            # add one more linear layer to blend two models
-            if self.config.modularize and self.config.add_blend_layer:
-                # blend_output = self.blend_ln(layer_output)
-                blend_output = self.blend_layer(layer_output)
-                layer_output = layer_output + blend_output
 
         output = (
             layer_output,
@@ -814,7 +667,7 @@ class BertPooler(nn.Module):
         else:
             linear_layer = RegularLinearActivation
         self.dense_act = linear_layer(
-            config.hidden_size, config.hidden_size, act="tanh", modularize=config.modularize
+            config.hidden_size, config.hidden_size, act="tanh"
         )
 
     def forward(self, hidden_states):
@@ -835,7 +688,7 @@ class BertPredictionHeadTransform(nn.Module):
         else:
             linear_layer = RegularLinearActivation
         self.dense_act = linear_layer(
-            config.hidden_size, config.hidden_size, act=config.hidden_act, modularize=config.modularize
+            config.hidden_size, config.hidden_size, act=config.hidden_act
         )
         BertLayerNorm = get_layer_norm_type(config)
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
@@ -853,7 +706,6 @@ class BertLMPredictionHead(nn.Module):
     def __init__(self, config, bert_model_embedding_weights):
         super(BertLMPredictionHead, self).__init__()
         self.transform = BertPredictionHeadTransform(config)
-        # NOTE: hidden_dim -> vocab_size, do not modularize
         self.decoder = nn.Linear(
             bert_model_embedding_weights.size(1),
             bert_model_embedding_weights.size(0),
@@ -894,7 +746,6 @@ class BertOnlyMLMHead(nn.Module):
 class BertOnlyNSPHead(nn.Module):
     def __init__(self, config):
         super(BertOnlyNSPHead, self).__init__()
-        # TODO: modularize
         self.seq_relationship = nn.Linear(config.hidden_size, 2)
 
     def forward(self, pooled_output):
@@ -906,7 +757,6 @@ class BertPreTrainingHeads(nn.Module):
     def __init__(self, config, bert_model_embedding_weights):
         super(BertPreTrainingHeads, self).__init__()
         self.predictions = BertLMPredictionHead(config, bert_model_embedding_weights)
-        # TODO: modularize
         self.seq_relationship = nn.Linear(config.hidden_size, 2)
 
     def forward(self, sequence_output, pooled_output, masked_token_indexes=None):
@@ -1393,7 +1243,6 @@ class BertForSequenceClassification(BertPreTrainedModel):
         self.bert = BertModel(config, args)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-        # TODO: modularize if necessary
         self.classifier = nn.Linear(config.hidden_size, self.num_labels)
         self.init_weights()
 

@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import time
+import wandb
 from argparse import Namespace
 from pretraining.args.dataset_args import PreTrainDatasetArguments
 from pretraining.args.deepspeed_args import DeepspeedArguments
@@ -64,15 +65,6 @@ from tqdm import tqdm
 from transformers import HfArgumentParser
 
 logger = Logger(cuda=torch.cuda.is_available())
-
-_has_wandb = False
-try:
-    import wandb
-
-    _has_wandb = True
-except:
-    logger.warning("W&B logger is not installed, \
-        for advanced logging please install using pip install wandb")
 
 global_step = 0
 global_data_samples = 0
@@ -252,7 +244,7 @@ def train(
 
             total_loss = None
 
-            if model.network.is_gradient_accumulation_boundary():              
+            if model.network.is_gradient_accumulation_boundary():             
                 if args.record_gradient_norm:
                     # record gradient norm of pretrained/epsilon params
                     for n, p in model.network.named_parameters():
@@ -342,11 +334,10 @@ def train(
             # log average loss
             logger.info(f"Average Validation Loss for epoch/step {index}/{global_step} is: {eval_loss}")
             if master_process(args):
-                if _has_wandb:
-                    log_info = {
-                        "Validation/Loss": eval_loss,
-                    }
-                    wandb.log(log_info, step=global_step)
+                log_info = {
+                    "Validation/Loss": eval_loss,
+                }
+                wandb.log(log_info, step=global_step)
 
     logger.info(f"Epoch {index}: check if time to save a fine-tune checkpoint")
     if (is_time_to_finetune(
@@ -383,21 +374,20 @@ def should_run_validation(time_diff, args, epoch):
 def report_metrics(args, lr, loss, step, data_sample_count, gradient_norm_dict=None):
     current_lr = lr[0] if type(lr) == list else lr
     if master_process(args):
-        if _has_wandb:
-            log_info = {
-                "train/lr": current_lr,
-                "train/train_loss": loss,
-            }
-            wandb.log(log_info, step=step)
-            samp_info = {
-                "Train/Samples/train_loss": loss,
-                "Train/Samples/lr": current_lr,
-                "Train/total_samples": data_sample_count,
-            }
-            wandb.log(samp_info, commit=False)
-            
-            if gradient_norm_dict is not None:
-                wandb.log(gradient_norm_dict, commit=False)
+        log_info = {
+            "train/lr": current_lr,
+            "train/train_loss": loss,
+        }
+        wandb.log(log_info, step=step)
+        samp_info = {
+            "Train/Samples/train_loss": loss,
+            "Train/Samples/lr": current_lr,
+            "Train/total_samples": data_sample_count,
+        }
+        wandb.log(samp_info, commit=False)
+        
+        if gradient_norm_dict is not None:
+            wandb.log(gradient_norm_dict, commit=False)
 
     if (step + 1) % args.print_steps == 0 and master_process(args):
         logger.info(
@@ -729,7 +719,7 @@ def start_training(args, model, optimizer, lr_scheduler, start_epoch):
 
 
 def setup_wandb(args, model, resume_id=None):
-    if _has_wandb and master_process(args):
+    if master_process(args):
         if resume_id is not None:
             wandb.init(
                 project=args.project_name,
@@ -768,7 +758,7 @@ def save_training_checkpoint(
         "last_global_data_samples": last_global_data_samples,
         "exp_time_marker": get_now() - exp_start_marker,  # save total training time in seconds
     }
-    if _has_wandb and dist.get_rank() == 0:
+    if dist.get_rank() == 0:
         checkpoint_state_dict.update({"run_id": wandb.run.id})
     # Add extra kwargs too
     checkpoint_state_dict.update(kwargs)

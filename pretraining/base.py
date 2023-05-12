@@ -25,6 +25,7 @@ from pretraining.configs import (
     PretrainedBertConfig,
     PretrainedRobertaConfig,
     StitchedPretrainedBertConfig,
+    LigoStitchedPretrainedBertConfig
 )
 from pretraining.modeling import BertForPreTraining, BertLMHeadModel
 from pretraining.utils import to_sanitized_dict
@@ -37,6 +38,7 @@ MODELS = {
     "bert-mlm-roberta": (BertLMHeadModel, PretrainedRobertaConfig, RobertaTokenizer),
     "bert-mlm-nsp": (BertForPreTraining, PretrainedBertConfig, BertTokenizer),
     "stitched-bert-mlm": (BertLMHeadModel, StitchedPretrainedBertConfig, BertTokenizer),
+    "ligo-stitched-bert-mlm": (BertLMHeadModel, LigoStitchedPretrainedBertConfig, BertTokenizer)
 }
 
 

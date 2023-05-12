@@ -90,6 +90,14 @@ class StitchedPretrainedBertConfig(PretrainedBertConfig):
         self.add_blend_layer = kwargs.get("add_blend_layer", False)
 
 
+class LigoStitchedPretrainedBertConfig(StitchedPretrainedBertConfig):
+    model_type = "ligo-stitched-bert"
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.num_src_models = kwargs.get("num_src_models", 2)
+    
+
 class PretrainedRobertaConfig(PretrainedBertConfig):
     model_type = "roberta"
 

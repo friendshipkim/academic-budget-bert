@@ -59,7 +59,7 @@ class TrainingInstance(object):
 
 
 def write_instance_to_example_file(
-    instances, tokenizer, max_seq_length, max_predictions_per_seq, output_file, no_nsp
+    instances, tokenizer, max_seq_length, max_predictions_per_seq, output_file,
 ):
     """Create TF example files from `TrainingInstance`s."""
 
@@ -74,9 +74,7 @@ def write_instance_to_example_file(
         [num_instances, max_predictions_per_seq], dtype="int32"
     )
     features["masked_lm_ids"] = np.zeros([num_instances, max_predictions_per_seq], dtype="int32")
-    if not no_nsp:
-        features["next_sentence_labels"] = np.zeros(num_instances, dtype="int32")
-
+    
     for inst_index, instance in enumerate(tqdm(instances)):
         input_ids = tokenizer.convert_tokens_to_ids(instance.tokens)
         input_mask = [1] * len(input_ids)
@@ -109,9 +107,6 @@ def write_instance_to_example_file(
         features["masked_lm_positions"][inst_index] = masked_lm_positions
         features["masked_lm_ids"][inst_index] = masked_lm_ids
 
-        if not no_nsp:
-            features["next_sentence_labels"][inst_index] = 1 if instance.is_random_next else 0
-
         total_written += 1
 
         # if inst_index < 20:
@@ -140,13 +135,6 @@ def write_instance_to_example_file(
     f.create_dataset(
         "masked_lm_ids", data=features["masked_lm_ids"], dtype="i4", compression="gzip"
     )
-    if not no_nsp:
-        f.create_dataset(
-            "next_sentence_labels",
-            data=features["next_sentence_labels"],
-            dtype="i1",
-            compression="gzip",
-        )
     f.flush()
     f.close()
 
@@ -160,7 +148,6 @@ def create_training_instances(
     masked_lm_prob,
     max_predictions_per_seq,
     rng,
-    no_nsp,
 ):
     """Create `TrainingInstance`s from raw text."""
     all_documents = [[]]
@@ -195,32 +182,24 @@ def create_training_instances(
     instances = []
     for _ in range(dupe_factor):
         for document_index in range(len(all_documents)):
-            if no_nsp:
-                instances.extend(
-                    create_instances_from_document_no_nsp(
-                        all_documents,
-                        document_index,
-                        max_seq_length,
-                        short_seq_prob,
-                        masked_lm_prob,
-                        max_predictions_per_seq,
-                        vocab_words,
-                        rng,
-                    )
+            instances.extend(
+                create_instances_from_document(
+                    all_documents,
+                    document_index,
+                    max_seq_length,
+                    short_seq_prob,
+                    masked_lm_prob,
+                    max_predictions_per_seq,
+                    vocab_words,
+                    rng,
                 )
-            else:
-                print("Not supported")
-                exit()
-                # instances.extend(
-                #     create_instances_from_document(
-                #         all_documents, document_index, max_seq_length, short_seq_prob,
-                #         masked_lm_prob, max_predictions_per_seq, vocab_words, rng))
-
+            )
+    
     rng.shuffle(instances)
     return instances
 
 
-def create_instances_from_document_no_nsp(
+def create_instances_from_document(
     all_documents,
     document_index,
     max_seq_length,
@@ -587,11 +566,6 @@ def main():
     parser.add_argument(
         "--random_seed", type=int, default=12345, help="random seed for initialization"
     )
-    parser.add_argument(
-        "--no_nsp",
-        action="store_true",
-        help="Generate samples without 2nd sentence segments (no NSP task)",
-    )
 
     args = parser.parse_args()
 
@@ -619,7 +593,6 @@ def main():
         args.masked_lm_prob,
         args.max_predictions_per_seq,
         rng,
-        args.no_nsp,
     )
 
     output_file = args.output_file
@@ -630,7 +603,6 @@ def main():
         args.max_seq_length,
         args.max_predictions_per_seq,
         output_file,
-        args.no_nsp,
     )
 
 

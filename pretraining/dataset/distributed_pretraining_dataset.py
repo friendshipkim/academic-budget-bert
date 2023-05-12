@@ -66,7 +66,6 @@ def create_pretraining_dataset(
     train_batch_size,
     worker_init,
     data_sampler,
-    no_nsp=False,
     num_replicas=1,
     rank=0,
     epoch=0,
@@ -74,7 +73,6 @@ def create_pretraining_dataset(
     train_data = pretraining_dataset(
         input_file=input_file,
         max_predictions_per_seq=max_predictions_per_seq,
-        no_nsp=no_nsp,
     )
     sampler_instance = data_sampler(
         train_data, num_replicas=num_replicas, rank=rank, drop_last=True
@@ -92,7 +90,7 @@ def create_pretraining_dataset(
 
 
 class pretraining_dataset(Dataset):
-    def __init__(self, input_file, max_predictions_per_seq, no_nsp=False):
+    def __init__(self, input_file, max_predictions_per_seq):
         self.input_file = input_file
         self.max_predictions_per_seq = max_predictions_per_seq
         f = h5py.File(input_file, "r")
@@ -102,11 +100,7 @@ class pretraining_dataset(Dataset):
             "segment_ids",
             "masked_lm_positions",
             "masked_lm_ids",
-            "next_sentence_labels",
         ]
-        self.no_nsp = no_nsp
-        if no_nsp:
-            keys.remove("next_sentence_labels")
         self.inputs = [np.asarray(f[key][:]) for key in keys]
         f.close()
 
@@ -127,26 +121,13 @@ class pretraining_dataset(Dataset):
             index = padded_mask_indices[0].item()
         masked_lm_labels[masked_lm_positions[:index]] = masked_lm_ids[:index]
 
-        if self.no_nsp:
-            return [
-                map_to_torch([BatchType.PRETRAIN_BATCH]),
-                input_ids,
-                input_mask,
-                segment_ids,
-                masked_lm_labels,
-            ]
-        else:
-            next_sentence_labels = torch.from_numpy(
-                np.asarray(self.inputs[-1][index].astype(np.int64))
-            )
-            return [
-                map_to_torch([BatchType.PRETRAIN_BATCH]),
-                input_ids,
-                input_mask,
-                segment_ids,
-                next_sentence_labels,
-                masked_lm_labels,
-            ]
+        return [
+            map_to_torch([BatchType.PRETRAIN_BATCH]),
+            input_ids,
+            input_mask,
+            segment_ids,
+            masked_lm_labels,
+        ]
 
 
 class ValidationDataset:
@@ -175,7 +156,6 @@ class ValidationDataset:
                 f"ValidationDataset - Initialization:  num_files = {self.num_files}"
             )
         self.max_predictions_per_seq = args.max_predictions_per_seq
-        self.no_nsp = args.no_nsp
 
     def get_validation_set(self, index):
         file_index = index % self.num_files
@@ -183,7 +163,6 @@ class ValidationDataset:
         validation_data = pretraining_dataset(
             input_file=input_file,
             max_predictions_per_seq=self.max_predictions_per_seq,
-            no_nsp=self.no_nsp,
         )
         logger.info(
             f"ValidationDataset - shard {file_index} - length {len(validation_data)}"
@@ -237,7 +216,6 @@ class PreTrainingDataset(BertDatasetProviderInterface):
             self.logger.info(
                 f"PreTrainingDataset - Initialization:  num_files = {self.num_files}"
             )
-        self.no_nsp = args.no_nsp
 
     def get_shard(self, epoch):
         if self.dataset_future is None:
@@ -249,7 +227,6 @@ class PreTrainingDataset(BertDatasetProviderInterface):
                 train_batch_size=self.train_micro_batch_size_per_gpu,
                 worker_init=self.worker_init,
                 data_sampler=self.data_sampler,
-                no_nsp=self.no_nsp,
                 num_replicas=self.world_size,
                 rank=self.global_rank,
                 epoch=epoch,
@@ -274,7 +251,6 @@ class PreTrainingDataset(BertDatasetProviderInterface):
             self.train_micro_batch_size_per_gpu,
             self.worker_init,
             self.data_sampler,
-            self.no_nsp,
             self.world_size,
             self.global_rank,
             epoch,

@@ -27,7 +27,7 @@ from pretraining.configs import (
     StitchedPretrainedBertConfig,
     LigoStitchedPretrainedBertConfig
 )
-from pretraining.modeling import BertForPreTraining, BertLMHeadModel
+from pretraining.modeling import BertLMHeadModel
 from pretraining.utils import to_sanitized_dict
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,6 @@ logger = logging.getLogger(__name__)
 MODELS = {
     "bert-mlm": (BertLMHeadModel, PretrainedBertConfig, BertTokenizer),
     "bert-mlm-roberta": (BertLMHeadModel, PretrainedRobertaConfig, RobertaTokenizer),
-    "bert-mlm-nsp": (BertForPreTraining, PretrainedBertConfig, BertTokenizer),
     "stitched-bert-mlm": (BertLMHeadModel, StitchedPretrainedBertConfig, BertTokenizer),
     "ligo-stitched-bert-mlm": (BertLMHeadModel, LigoStitchedPretrainedBertConfig, BertTokenizer)
 }

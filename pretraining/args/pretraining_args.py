@@ -133,13 +133,6 @@ class PretrainScriptParamsArguments:
         default=1, metadata={"help": "Number of validation shards"}
     )
 
-    add_nsp: Optional[bool] = field(
-        default=False,
-        metadata={
-            "help": "Create a model with NSP task; dataset assumed to have NSP labels"
-        },
-    )
-
     current_run_id: Optional[str] = field(
         default="", metadata={"help": "the current run id (mainly for hyperparams)"}
     )
@@ -213,7 +206,6 @@ class PretrainScriptParamsArguments:
     )
 
     def __post_init__(self):
-        self.no_nsp = not self.add_nsp
         self.learning_rate = self.lr
         if self.finetune_time_markers is not None:
             self.finetune_time_markers = [

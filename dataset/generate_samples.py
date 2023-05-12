@@ -94,7 +94,6 @@ if __name__ == "__main__":
         hdf5_preprocessing_cmd += f" --masked_lm_prob={args.masked_lm_prob}"
         hdf5_preprocessing_cmd += f" --random_seed={args.seed + shard_idx}"
         hdf5_preprocessing_cmd += f" --dupe_factor=1"
-        hdf5_preprocessing_cmd += f" --no_nsp"
 
         bert_preprocessing_process = subprocess.Popen(hdf5_preprocessing_cmd, shell=True)
 

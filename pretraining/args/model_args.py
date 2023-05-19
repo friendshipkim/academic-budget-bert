@@ -149,3 +149,10 @@ class ModelConfigArguments:
             "choices": ["pytorch", "apex", "rms_norm"],
         },
     )
+    
+    hf_architecture: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "follows huggingface bert architecture (pre-ln)"
+        },
+    )

@@ -65,9 +65,8 @@ class PretrainedBertConfig(BertConfig):
         self.sparse_mask_prediction = sparse_mask_prediction
         self.layer_norm_type = layer_norm_type
         self.layernorm_embedding = layernorm_embedding
-        self.modularize = kwargs.get("modularize", False)
-        self.add_blend_layer = kwargs.get("add_blend_layer", False)
-        self.overlap = kwargs.get("overlap", 8)
+        self.is_stitched = False
+        self.hf_architecture = kwargs.get("hf_architecture", False)
 
 
 class StitchedPretrainedBertConfig(PretrainedBertConfig):

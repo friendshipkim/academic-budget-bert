@@ -33,7 +33,7 @@ import torch
 import torch.nn.functional as F
 import torch.nn.init as init
 from torch import nn
-from torch.nn import CrossEntropyLoss, Module
+from torch.nn import CrossEntropyLoss
 from torch.nn.modules.loss import MSELoss
 from torch.nn.parameter import Parameter
 from torch.utils import checkpoint
@@ -110,7 +110,7 @@ def swish(x):
 ACT2FN = {"gelu": F.gelu, "relu": F.relu, "swish": swish, "tanh": F.tanh}
 
 
-class ModularLinear(Module):
+class ModularLinear(nn.Module):
     # from torch.nn.Linear
     # https://pytorch.org/docs/stable/_modules/torch/nn/modules/linear.html#Linear
     __constants__ = ['in_features', 'out_features']
@@ -171,7 +171,7 @@ class ModularLinear(Module):
         )
     
 
-class LinearActivation(Module):
+class LinearActivation(nn.Module):
     r"""Fused Linear and activation Module."""
     __constants__ = ["bias"]
 
@@ -287,14 +287,14 @@ class LinearActivation(Module):
                 self.n_modules, self.modular_in_features,
                 self.n_modules, self.modular_out_features,
                 self.bias is not None
-            )  
+            )
         else:
             return "in_features={}, out_features={}, bias={}".format(
                 self.in_features, self.out_features, self.bias is not None
             )
 
 
-class RegularLinearActivation(Module):
+class RegularLinearActivation(nn.Module):
     """Regular Linear activation module with"""
 
     def __init__(self, in_features, out_features, act="gelu", modularize=False, n_modules=2):
@@ -329,7 +329,7 @@ def get_apex_layer_norm():
         )
 
 
-class RMSNorm(torch.nn.Module):
+class RMSNorm(nn.Module):
     def __init__(self, dim, p=-1.0, eps=1e-8, bias=False):
         """
             Root Mean Square Layer Normalization
@@ -389,6 +389,13 @@ def get_layer_norm_type(config):
         )
 
 
+def get_linear_type(config):
+    if config.fused_linear_layer:
+        return LinearActivation
+    else:
+        return RegularLinearActivation
+
+
 class BertEmbeddings(nn.Module):
     """Construct the embeddings from word, position and token_type embeddings."""
 
@@ -406,7 +413,7 @@ class BertEmbeddings(nn.Module):
         self.layernorm_embedding = config.layernorm_embedding
         if config.layernorm_embedding:
             BertLayerNorm = get_layer_norm_type(config)
-            self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
+            self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
@@ -453,7 +460,7 @@ class BertSelfAttention(nn.Module):
         # all_head_size - stitch: 2d, regular: d
         self.all_head_size = self.num_attention_heads * self.attention_head_size
 
-        if config.modularize:
+        if config.is_stitched and config.modularize:
             self.query = ModularLinear(config.hidden_size, self.all_head_size)
             self.key = ModularLinear(config.hidden_size, self.all_head_size)
             self.value = ModularLinear(config.hidden_size, self.all_head_size)
@@ -463,7 +470,9 @@ class BertSelfAttention(nn.Module):
             self.value = nn.Linear(config.hidden_size, self.all_head_size)
 
         self.dropout = nn.Dropout(config.attention_probs_dropout_prob)
-        self.softmax = nn.Softmax(dim=-1)
+        
+        # # NOTE: this is replaced with torch.softmax function
+        # self.softmax = nn.Softmax(dim=-1)
 
     def transpose_for_scores(self, x):
         new_x_shape = x.size()[:-1] + (
@@ -497,7 +506,9 @@ class BertSelfAttention(nn.Module):
         attention_scores = attention_scores + attention_mask
 
         # Normalize the attention scores to probabilities.
-        attention_probs = self.softmax(attention_scores)
+        # NOTE: this is replaced with torch.softmax function
+        # attention_probs = self.softmax(attention_scores)
+        attention_probs = nn.functional.softmax(attention_scores, dim=-1)
 
         # This is actually dropping out entire tokens to attend to, which might
         # seem a bit unusual, but is taken from the original Transformer paper.
@@ -517,7 +528,7 @@ class BertSelfAttention(nn.Module):
 class BertSelfOutput(nn.Module):
     def __init__(self, config):
         super(BertSelfOutput, self).__init__()
-        if config.modularize:
+        if config.is_stitched and config.modularize:
             self.dense = ModularLinear(config.hidden_size, config.hidden_size)
         else:
             self.dense = nn.Linear(config.hidden_size, config.hidden_size)
@@ -529,7 +540,6 @@ class BertSelfOutput(nn.Module):
         if skip_ln_dp:
             print("test mode: skipping dropout in BertSelfOutput")
             return hidden_states
-        # NOTE: no layernorm here
         hidden_states = self.dropout(hidden_states)
         return hidden_states
 
@@ -555,12 +565,12 @@ class BertAttention(nn.Module):
 class BertIntermediate(nn.Module):
     def __init__(self, config):
         super(BertIntermediate, self).__init__()
-        if config.fused_linear_layer:
-            linear_layer = LinearActivation
-        else:
-            linear_layer = RegularLinearActivation
+        linear_layer = get_linear_type(config)
         self.dense_act = linear_layer(
-            config.hidden_size, config.intermediate_size, act=config.hidden_act, modularize=config.modularize
+            config.hidden_size,
+            config.intermediate_size,
+            act=config.hidden_act,
+            modularize=config.is_stitched and config.modularize,
         )
 
     def forward(self, hidden_states):
@@ -571,7 +581,7 @@ class BertIntermediate(nn.Module):
 class BertOutput(nn.Module):
     def __init__(self, config):
         super(BertOutput, self).__init__()
-        if config.modularize:
+        if config.is_stitched and config.modularize:
             self.dense = ModularLinear(config.intermediate_size, config.hidden_size)
         else:
             self.dense = nn.Linear(config.intermediate_size, config.hidden_size)
@@ -590,14 +600,18 @@ class BertLayer(nn.Module):
         self.attention = BertAttention(config)
         self.config = config
 
+        # NOTE: post-ln mode is equivalent to hf structure
         BertLayerNorm = get_layer_norm_type(config)
-
-        self.PreAttentionLayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
-        self.PostAttentionLayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
+        self.PreAttentionLayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        self.PostAttentionLayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        
         self.intermediate = BertIntermediate(config)
         self.output = BertOutput(config)
-        if self.config.modularize and self.config.add_blend_layer:
-            # self.blend_ln = BertLayerNorm(config.hidden_size, eps=1e-12)
+        
+        # add an extra linear layer for modularized model
+        self.add_blend_layer = self.config.is_stitched and self.config.modularize and self.config.add_blend_layer
+        if self.add_blend_layer:
+            # self.blend_ln = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
             self.blend_layer = nn.Linear(config.hidden_size, config.hidden_size, bias=True)
 
     def maybe_layer_norm(self, hidden_states, layer_norm, current_ln_mode):
@@ -671,7 +685,7 @@ class BertLayer(nn.Module):
                 )
                 
             # add one more linear layer to blend two models
-            if self.config.modularize and self.config.add_blend_layer:
+            if self.add_blend_layer:
                 # blend_output = self.blend_ln(layer_output)
                 blend_output = self.blend_layer(layer_output)
                 layer_output = layer_output + blend_output
@@ -687,54 +701,16 @@ class BertEncoder(nn.Module):
     def __init__(self, config, args):
         super(BertEncoder, self).__init__()
         self.config = config
-        BertLayerNorm = get_layer_norm_type(config)
-        self.FinalLayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
-        self.is_transformer_kernel = (
-            hasattr(args, "deepspeed_transformer_kernel")
-            and args.deepspeed_transformer_kernel
+        
+        if not self.config.hf_architecture:
+            # no FinalLayerNorm in hf bert
+            BertLayerNorm = get_layer_norm_type(config)
+            self.FinalLayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        
+        layer = BertLayer(config)
+        self.layer = nn.ModuleList(
+            [copy.deepcopy(layer) for _ in range(self.config.num_hidden_layers)]
         )
-
-        if (
-            hasattr(args, "deepspeed_transformer_kernel")
-            and args.deepspeed_transformer_kernel
-        ):
-            from deepspeed import DeepSpeedTransformerConfig, DeepSpeedTransformerLayer
-
-            ds_config = get_deepspeed_config(args)
-            has_huggingface = hasattr(args, "huggingface")
-            ds_transformer_config = DeepSpeedTransformerConfig(
-                batch_size=ds_config.train_micro_batch_size_per_gpu,
-                hidden_size=config.hidden_size,
-                intermediate_size=config.intermediate_size,
-                heads=config.num_attention_heads,
-                attn_dropout_ratio=config.attention_probs_dropout_prob,
-                hidden_dropout_ratio=config.hidden_dropout_prob,
-                num_hidden_layers=config.num_hidden_layers,
-                initializer_range=config.initializer_range,
-                local_rank=args.local_rank if hasattr(args, "local_rank") else -1,
-                seed=args.seed,
-                fp16=ds_config.fp16_enabled,
-                pre_layer_norm=True if "pre-ln" in config.encoder_ln_mode else False,
-                normalize_invertible=args.normalize_invertible,
-                gelu_checkpoint=args.gelu_checkpoint,
-                adjust_init_range=True,
-                attn_dropout_checkpoint=args.attention_dropout_checkpoint,
-                stochastic_mode=args.stochastic_mode,
-                huggingface=has_huggingface,
-                training=self.training,
-            )
-
-            self.layer = nn.ModuleList(
-                [
-                    copy.deepcopy(DeepSpeedTransformerLayer(ds_transformer_config))
-                    for _ in range(config.num_hidden_layers)
-                ]
-            )
-        else:
-            layer = BertLayer(config)
-            self.layer = nn.ModuleList(
-                [copy.deepcopy(layer) for _ in range(self.config.num_hidden_layers)]
-            )
 
     def add_attention(self, all_attentions, attention_probs):
         if attention_probs is not None:
@@ -776,27 +752,24 @@ class BertEncoder(nn.Module):
             # decoder layers
         else:
             for layer_module in self.layer:
-                if self.is_transformer_kernel:
-                    # using Deepspeed Transformer kernel
-                    hidden_states = layer_module(hidden_states, attention_mask)
-                else:
-                    layer_out = layer_module(
-                        hidden_states,
-                        attention_mask,
-                        skip_ln_dp=skip_ln_dp,
+                layer_out = layer_module(
+                    hidden_states,
+                    attention_mask,
+                    skip_ln_dp=skip_ln_dp,
+                )
+                hidden_states, attention_probs = layer_out
+                # get all attention_probs from layers
+                if output_attentions:
+                    all_attentions = self.add_attention(
+                        all_attentions, attention_probs
                     )
-                    hidden_states, attention_probs = layer_out
-                    # get all attention_probs from layers
-                    if output_attentions:
-                        all_attentions = self.add_attention(
-                            all_attentions, attention_probs
-                        )
 
                 if output_all_encoded_layers:
                     all_encoder_layers.append(hidden_states)
 
         if not output_all_encoded_layers or checkpoint_activations:
-            if self.config.useLN and self.config.encoder_ln_mode in "pre-ln":
+            # NOTE: not in hf_architecture
+            if self.config.useLN and (self.config.encoder_ln_mode == "pre-ln"):
                 hidden_states = self.FinalLayerNorm(hidden_states)
 
             all_encoder_layers.append(hidden_states)
@@ -809,12 +782,12 @@ class BertEncoder(nn.Module):
 class BertPooler(nn.Module):
     def __init__(self, config):
         super(BertPooler, self).__init__()
-        if config.fused_linear_layer:
-            linear_layer = LinearActivation
-        else:
-            linear_layer = RegularLinearActivation
+        linear_layer = get_linear_type(config)
         self.dense_act = linear_layer(
-            config.hidden_size, config.hidden_size, act="tanh", modularize=config.modularize
+            config.hidden_size,
+            config.hidden_size,
+            act="tanh",
+            modularize=config.is_stitched and config.modularize
         )
 
     def forward(self, hidden_states):
@@ -830,15 +803,15 @@ class BertPredictionHeadTransform(nn.Module):
     def __init__(self, config):
         super(BertPredictionHeadTransform, self).__init__()
         self.config = config
-        if config.fused_linear_layer:
-            linear_layer = LinearActivation
-        else:
-            linear_layer = RegularLinearActivation
+        linear_layer = get_linear_type(config)
         self.dense_act = linear_layer(
-            config.hidden_size, config.hidden_size, act=config.hidden_act, modularize=config.modularize
+            config.hidden_size,
+            config.hidden_size,
+            act=config.hidden_act,
+            modularize=config.is_stitched and config.modularize
         )
         BertLayerNorm = get_layer_norm_type(config)
-        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=1e-12)
+        self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
     def forward(self, hidden_states):
         # input is 2D - [# of masked tokens, d]
@@ -860,7 +833,9 @@ class BertLMPredictionHead(nn.Module):
             bias=False,
         )
         self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.size(0)))
-        self.decoder.weight.data[:] = bert_model_embedding_weights.data[:]
+        # TODO: to tie weights, fix this part
+        # self.decoder.weight.data[:] = bert_model_embedding_weights.data[:]
+        self.decoder.weight = bert_model_embedding_weights
         self.sparse_predict = config.sparse_mask_prediction
         if not config.sparse_mask_prediction:
             self.decoder.bias.data[:] = self.bias.data[:]
@@ -980,6 +955,7 @@ class BertModel(BertPreTrainedModel):
 
     def __init__(self, config, args=None):
         super(BertModel, self).__init__(config)
+        self.use_pooler = not self.config.hf_architecture
         self.embeddings = BertEmbeddings(config)
         # set pad_token_id that is used for sparse attention padding
         self.pad_token_id = (
@@ -988,7 +964,9 @@ class BertModel(BertPreTrainedModel):
             else 0
         )
         self.encoder = BertEncoder(config, args)
-        self.pooler = BertPooler(config)
+        
+        if self.use_pooler:
+            self.pooler = BertPooler(config)
 
         logger.info("Init BERT pretrain model")
 
@@ -1046,7 +1024,10 @@ class BertModel(BertPreTrainedModel):
         sequence_output = encoded_layers[-1]
 
         # pooled_output: [bsz, d]
-        pooled_output = self.pooler(sequence_output)
+        if self.use_pooler:
+            pooled_output = self.pooler(sequence_output)
+        else:
+            pooled_output = None
 
         if not output_all_encoded_layers:
             encoded_layers = encoded_layers[-1]

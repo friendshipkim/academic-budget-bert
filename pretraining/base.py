@@ -88,6 +88,11 @@ class BasePretrainModel(object):
                     args.model_config["modularize"] = args.modularize
                     args.model_config["add_blend_layer"] = args.add_blend_layer
                     args.model_config["overlap"] = args.overlap
+                    
+                # hf arch
+                args.model_config["layernorm_embedding"] = True
+                args.model_config["encoder_ln_mode"] = "post-ln"
+                
                 config = config_cls(**args.model_config)
                 config = self._init_vocab_size(config)
             else:

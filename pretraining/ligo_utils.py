@@ -163,14 +163,14 @@ def register_bert(tgt_bert: Type[BertModel], src_bert_list: List[Type[BertModel]
     b_emb = tgt_bert.embeddings.word_embeddings.parametrizations.weight[0].ligo_b
 
     # ===== register encoder layers
-    # TODO: fix this for num_src_models != 2
-    # n_layers = len(tgt_bert.encoder.layer)
-    for tgt_layer, src_layer_0, src_layer_1 in zip(
-        tgt_bert.encoder.layer,
-        src_bert_list[0].encoder.layer,
-        src_bert_list[1].encoder.layer,
-    ):
-        register_layer(tgt_layer, [src_layer_0, src_layer_1], b_emb)
+    assert len(tgt_bert.encoder.layer) == len(src_bert_list[0].encoder.layer)
+    n_layers = len(tgt_bert.encoder.layer)
+    for l in range(n_layers):
+        register_layer(
+            tgt_bert.encoder.layer[l],
+            [src_bert_list[i].encoder.layer[l] for i in range(len(src_bert_list))],
+            b_emb
+        )
 
     # ===== register final LayerNorm
     register_ln(

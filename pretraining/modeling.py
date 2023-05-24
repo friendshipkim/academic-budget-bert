@@ -833,9 +833,11 @@ class BertLMPredictionHead(nn.Module):
             bias=False,
         )
         self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.size(0)))
-        # TODO: to tie weights, fix this part
-        # self.decoder.weight.data[:] = bert_model_embedding_weights.data[:]
-        self.decoder.weight = bert_model_embedding_weights
+        # NOTE: hf bert ties embedding and decoder weights
+        if not config.hf_architecture:
+            self.decoder.weight.data[:] = bert_model_embedding_weights.data[:]
+        else:
+            self.decoder.weight = bert_model_embedding_weights
         self.sparse_predict = config.sparse_mask_prediction
         if not config.sparse_mask_prediction:
             self.decoder.bias.data[:] = self.bias.data[:]

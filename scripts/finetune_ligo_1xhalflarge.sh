@@ -1,4 +1,5 @@
 export WANDB_MODE=online
+export CUDA_VISIBLE_DEVICES=1
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 python finetune_ligo.py \
   --model_type bert-mlm --tokenizer_name bert-large-uncased \
@@ -26,8 +27,8 @@ python finetune_ligo.py \
   --warmup_proportion 0.06 \
   --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20_ver2/set23/ \
   --output_dir /n/tata_ddos_ceph/woojeong/saved_models/ligo-bert/ \
-  --job_name ligo-2xhalflarge \
-  --current_run_id set23-100steps-warmup6-bsz512-lr5e-5-noval \
+  --job_name 1xhalflarge \
+  --current_run_id set23-100steps-warmup6-bsz256-lr5e-5-noval \
   --project_name ligo-finetuning \
   --seed 42 \
   --fp16 \

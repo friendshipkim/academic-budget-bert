@@ -27,13 +27,13 @@ python finetune_ligo.py \
   --warmup_proportion 0.06 \
   --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20_ver2/set23/ \
   --output_dir /n/tata_ddos_ceph/woojeong/saved_models/ligo-bert/ \
-  --job_name 2xhalflarge \
-  --current_run_id set23-100steps-warmup6-bsz256-lr5e-5-noval-eyeinit \
+  --job_name 1xhalflarge-hf \
+  --current_run_id set23-100steps-warmup6-bsz256-lr5e-5-noval \
   --project_name ligo-finetuning \
   --seed 33 \
   --fp16 \
   --load_tokenizer_locally \
   --do_stitch \
-  --num_src_models 2 \
-  --src_model1_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-set0-10ksteps-5val/set0-10ksteps-5val/epoch1000000_step10022/ \
-  --src_model2_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-set1-10ksteps-5val/set1-10ksteps-5val/epoch1000000_step10002/
+  --hf_architecture \
+  --num_src_models 1 \
+  --src_model1_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-set0-disjoint-bsz256-160ksteps-5val/set0-disjoint-bsz256-160ksteps-5val/epoch1000000000_step160398/

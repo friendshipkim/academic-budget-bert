@@ -15,12 +15,13 @@ from pretraining.dataset.pretraining_dataset import (
 from torch.optim import AdamW
 from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.sampler import RandomSampler
+from torch.nn import CrossEntropyLoss
 
 from run_pretraining import parse_arguments
 
 # logger = Logger(cuda=torch.cuda.is_available())
 # logging.basicConfig(filename="./finetune_100step_nowarmup_lr2e-4.log", filemode='w', level=logging.INFO)
-device = "cuda:0" if torch.cuda.is_available() else "cpu"
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 
 def count_parameters(model):
@@ -48,7 +49,6 @@ def init_ligo(args):
     logging.info(f"Initializing ligo model with {args.num_src_models} models...")
     ligo_stitched_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
     register_models(ligo_stitched_model.network, [src_model.network for src_model in src_model_list])
-    
     # # check if weights are tied properly
     # check_tied_weights(ligo_stitched_model.network)
     
@@ -117,12 +117,9 @@ def main():
     args = parse_arguments()
     
     # register ligo parameterization
-    # src1_model: 1.9404
-    # src2_model: 1.9360
     src_model_list, target_model = init_ligo(args)
-    model = target_model
+    model = src_model_list[0]
     model.network.to(device)
-    # breakpoint()
     
     # optimizer, lr scheduler
     # NOTE: ligo params of ln and bias are tied, so no need to group them
@@ -137,7 +134,7 @@ def main():
     lr_scheduler = get_scheduler(args.schedule_args, optimizer, args)
     
     # setup W&B logging
-    wandb.init(project=args.project_name, group="ligo_2xhalflarge", name=args.current_run_id, dir="/tmp")
+    wandb.init(project=args.project_name, group=args.group_name, name=args.job_name, dir="/tmp")
     wandb.config.update(args, allow_val_change=True)
     wandb.config.update({
         'weight_decay': args.optimizer_args.weight_decay,
@@ -172,8 +169,11 @@ def main():
             # (?: [32, 1], input_ids: [32, 128], attention_mask:[32, 128], token_type_ids (all 0): [32, 128], masked_lm_labels: [32, 128])
             batch = pretrain_dataset_provider.get_batch(batch_index)
             batch = tuple(t.to(device) for t in batch)  # Move to GPU
+            print(batch[1])
             
             loss = model.forward(batch)
+            print(loss)
+            exit()
             
             data_sample_count += args.train_micro_batch_size_per_gpu
             
@@ -214,7 +214,88 @@ def main():
                 if current_step == finetune_steps:
                     logging.info("end of finetuning")
                     return
+
+
+def test_ligo_2models():
+    args = parse_arguments()
+    
+    # register ligo parameterization
+    src_model_list, target_model = init_ligo(args)
+    tgt_model = target_model
+    src_model_list[0].network.to(device)
+    src_model_list[1].network.to(device)
+    tgt_model.network.to(device)
+    
+    tgt_model.eval()
+    src_model_list[0].eval()
+    src_model_list[1].eval()
+    
+    # datasets
+    pretrain_dataset_provider = PreTrainingDataset(args, logger=args.logger)
+    dataset_iterator, total_length = pretrain_dataset_provider.get_shard(0)
+    for batch_index_number, batch_index in enumerate(tqdm(dataset_iterator, smoothing=1)):
+        batch = pretrain_dataset_provider.get_batch(batch_index)
+        batch = tuple(t.to(device) for t in batch)  # Move to GPU
+        
+        input_ids = batch[1]  # [32, 128]
+        attention_mask = batch[2]
+        extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)  # [32, 128]
+        token_type_ids = batch[3]  # (all 0): [32, 128]
+        masked_lm_labels = batch[4]  # [32, 128]
+        masked_token_indexes = torch.nonzero((masked_lm_labels + 1).view(-1), as_tuple=False).view(-1)
+        
+        with torch.no_grad():
+            # [32, 128, 512]
+            src_emb_out0 = src_model_list[0].network.bert.embeddings(input_ids, token_type_ids, skip_ln_dp=True)
+            src_emb_out1 = src_model_list[1].network.bert.embeddings(input_ids, token_type_ids, skip_ln_dp=True)
             
+            # [32, 128, 1024]
+            tgt_emb_out = tgt_model.network.bert.embeddings(input_ids, token_type_ids, skip_ln_dp=True)
+            assert torch.isclose(torch.concat((src_emb_out0, src_emb_out1), dim=-1), tgt_emb_out).all()
+        
+            # bert layer output
+            src_layer_out0 = src_model_list[0].network.bert.encoder.layer[0](src_emb_out0, extended_attention_mask, skip_ln_dp=True)
+            src_layer_out1 = src_model_list[1].network.bert.encoder.layer[0](src_emb_out1, extended_attention_mask, skip_ln_dp=True)
+            tgt_layer_out = tgt_model.network.bert.encoder.layer[0](tgt_emb_out, extended_attention_mask, skip_ln_dp=True)
+            assert torch.isclose(torch.concat((src_layer_out0[0], src_layer_out1[0]), dim=-1), tgt_layer_out[0]).all()
+            
+            # encoder output -> nan at last
+            src_enc_out0 = src_model_list[0].network.bert.encoder(src_emb_out0, extended_attention_mask, skip_ln_dp=True)
+            src_enc_out1 = src_model_list[1].network.bert.encoder(src_emb_out1, extended_attention_mask, skip_ln_dp=True)
+            tgt_enc_out = tgt_model.network.bert.encoder(tgt_emb_out, extended_attention_mask, skip_ln_dp=True)
+            
+            # cls predictions transform
+            # [481, 30528]
+            src_trans_out0 = src_model_list[0].network.cls.predictions.transform(src_emb_out0)
+            src_trans_out1 = src_model_list[1].network.cls.predictions.transform(src_emb_out1)
+            tgt_trans_out = tgt_model.network.cls.predictions.transform(tgt_emb_out)
+            assert torch.isclose(torch.concat((src_trans_out0, src_trans_out1), dim=-1), tgt_trans_out).all()
+            
+            # cls predictions
+            # [481, 30528]
+            src_pred_out0 = src_model_list[0].network.cls(src_emb_out0, masked_token_indexes)
+            src_pred_out1 = src_model_list[1].network.cls(src_emb_out1, masked_token_indexes)
+            tgt_pred_out = tgt_model.network.cls(tgt_emb_out, masked_token_indexes)
+            assert torch.isclose((src_pred_out0 + src_pred_out1) / 2, tgt_pred_out, atol=1e-6).all()
+            
+            def _get_loss(prediction_scores):
+                loss_fct = CrossEntropyLoss(ignore_index=-1)
+                target = torch.index_select(
+                    masked_lm_labels.view(-1), 0, masked_token_indexes
+                )
+                masked_lm_loss = loss_fct(
+                    prediction_scores.view(-1, 30528), target
+                )
+                return masked_lm_loss
+            
+            print(f"MLM loss of src model 1: {_get_loss(src_pred_out0).item()}")
+            print(f"MLM loss of src model 2: {_get_loss(src_pred_out1).item()}")
+            print(f"MLM loss of target model: {_get_loss(tgt_pred_out).item()}")
+            
+        breakpoint()
+        exit()
+
 
 if __name__ == "__main__":
+    # test_ligo_2models()
     main()

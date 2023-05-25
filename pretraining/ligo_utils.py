@@ -43,6 +43,14 @@ def register_bert_embeddings(
         src_emb_list=[src_emb.token_type_embeddings for src_emb in src_emb_list],
         tie_b=tgt_emb.word_embeddings.parametrizations.weight[0].ligo_b,
     )
+    
+    if tgt_emb.config.hf_architecture:
+        register_ln(
+            tgt_ln=tgt_emb.LayerNorm,
+            src_ln_list=[src_emb.LayerNorm for src_emb in src_emb_list],
+            tie_b=tgt_emb.word_embeddings.parametrizations.weight[0].ligo_b,
+            bias=tgt_emb.LayerNorm.bias is not None,
+        )
 
 
 def register_self_attn(
@@ -134,9 +142,6 @@ def register_layer(
         bias=tgt_layer.output.dense.bias is not None,
     )
 
-    # # NOTE: No output layernorm
-    # copy_layernorm(src1.output.LayerNorm, src2.output.LayerNorm, tgt.output.LayerNorm)
-
     # copy both PreAttentionLayerNorm, PostAttentionLayerNorm
     register_ln(
         tgt_ln=tgt_layer.PreAttentionLayerNorm,
@@ -172,23 +177,25 @@ def register_bert(tgt_bert: Type[BertModel], src_bert_list: List[Type[BertModel]
             b_emb
         )
 
-    # ===== register final LayerNorm
-    register_ln(
-        tgt_ln=tgt_bert.encoder.FinalLayerNorm,
-        src_ln_list=[src_bert.encoder.FinalLayerNorm for src_bert in src_bert_list],
-        tie_b=b_emb,
-        bias=tgt_bert.encoder.FinalLayerNorm.bias is not None,
-    )
+    # when using hf_architecture, no final LayerNorm and Pooler
+    if not tgt_bert.config.hf_architecture:
+        # ===== register final LayerNorm
+        register_ln(
+            tgt_ln=tgt_bert.encoder.FinalLayerNorm,
+            src_ln_list=[src_bert.encoder.FinalLayerNorm for src_bert in src_bert_list],
+            tie_b=b_emb,
+            bias=tgt_bert.encoder.FinalLayerNorm.bias is not None,
+        )
 
-    # NOTE: pooler is not used during pretraining
-    # ===== register pooler
-    register_linear(
-        tgt_linear=tgt_bert.pooler.dense_act,
-        src_linear_list=[src_bert.pooler.dense_act for src_bert in src_bert_list],
-        # TODO: check
-        tie_a=None,
-        tie_b=None,
-    )
+        # NOTE: pooler is not used during pretraining
+        # ===== register pooler
+        register_linear(
+            tgt_linear=tgt_bert.pooler.dense_act,
+            src_linear_list=[src_bert.pooler.dense_act for src_bert in src_bert_list],
+            # TODO: check
+            tie_a=None,
+            tie_b=None,
+        )
 
 
 def register_mlm_head(

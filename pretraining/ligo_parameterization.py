@@ -9,8 +9,24 @@ from torch.nn import Parameter, ParameterList
 
 
 def init_params(params: Type[ParameterList]):
+    # p: d2_dim x d1_dim
+    assert len(params) == 2
+    
+    params[0] = nn.init.eye_(params[0])
+    
+    d2_dim, d1_dim = params[1].shape
+    params[1] = Parameter(torch.flip(nn.init.eye_(params[1]).view(2, d1_dim, d1_dim), dims=[0]).view(d2_dim, d1_dim), requires_grad=True)
+    # dim1, dim2 = p.shape
+    # is_long = dim1 > dim2
+    # src_dim = dim2 if is_long else dim1
+    # long_eye_param = Parameter(torch.concat((torch.eye(src_dim), torch.zeros(src_dim, src_dim)), dim=0))
+    # p = long_eye_param if is_long else long_eye_param.T
+    # breakpoint()
+
+
+def init_params_kaiming(params: Type[ParameterList]):
     for p in params:
-        torch.nn.init.kaiming_uniform_(p, a=math.sqrt(5))
+        nn.init.kaiming_uniform_(p, a=math.sqrt(5))
 
 
 class LigoEmbedding(nn.Module):
@@ -75,7 +91,8 @@ class LigoDecoderLinearWeight(nn.Module):
             self.ligo_a = tie_a
 
         # source weights: [d1_out x d1_in] x n_src
-        src_weight = [src_module_list[i].weight.detach() for i in range(self.num_src_models)]
+        # average decoder weights to get the same logit value
+        src_weight = [src_module_list[i].weight.detach() / self.num_src_models for i in range(self.num_src_models)]
         for i, p in enumerate(src_weight):
             self.register_buffer(f"src_weight_{i}", p)
 
@@ -145,9 +162,10 @@ class LigoLinearWeight(nn.Module):
 
 
 class LigoLinearBias(nn.Module):
-    def __init__(self, out_dim, src_module_list, tie_b):
+    def __init__(self, out_dim, src_module_list, tie_b=None):
         super().__init__()
         self.num_src_models = len(src_module_list)
+        src_out_dim = src_module_list[0].out_features
 
         src_bias = [src_module_list[i].bias.detach() for i in range(self.num_src_models)]
         for i, p in enumerate(src_bias):
@@ -155,7 +173,17 @@ class LigoLinearBias(nn.Module):
 
         # NOTE: ligo_b is not registered under parametrizations.bias
         # tie_b should be given at initialization
-        self.ligo_b = tie_b
+        # self.ligo_b = tie_b
+        if tie_b is None:
+            self.ligo_b = nn.ParameterList(
+                [
+                    copy.deepcopy(Parameter(torch.Tensor(out_dim, src_out_dim), requires_grad=True))
+                    for _ in range(self.num_src_models)
+                ]
+            )
+            init_params(self.ligo_b)
+        else:
+            self.ligo_b = tie_b
 
     @property
     def params(self):
@@ -173,6 +201,7 @@ class LigoLN(nn.Module):
     def __init__(self, out_dim, src_module_list, tie_b, is_weight):
         super().__init__()
         self.num_src_models = len(src_module_list)
+        src_out_dim = src_module_list[0].weight.size(0)
 
         self.is_weight = is_weight
 
@@ -187,7 +216,17 @@ class LigoLN(nn.Module):
 
         # NOTE: ligo_b is not registered under parametrizations.bias
         # tie_b should be given at initialization
-        self.ligo_b = tie_b
+        # self.ligo_b = tie_b
+        if tie_b is None:
+            self.ligo_b = nn.ParameterList(
+                [
+                    copy.deepcopy(Parameter(torch.Tensor(out_dim, src_out_dim), requires_grad=True))
+                    for _ in range(self.num_src_models)
+                ]
+            )
+            init_params(self.ligo_b)
+        else:
+            self.ligo_b = tie_b
 
     @property
     def params(self):

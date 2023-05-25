@@ -203,6 +203,13 @@ class PreTrainingDataset(BertDatasetProviderInterface):
         if data_prefix == "train":
             self.dataset_files.sort()
         random.shuffle(self.dataset_files)
+        
+        # save train file list for debugging
+        if self.global_rank == 0:
+            self.logger.info("saving file list")
+            torch.save(self.dataset_files, "train_file_list.pkl")
+        # print(f"rank {dist.get_rank()}: {self.dataset_files[:4]}")
+        
         self.num_files = len(self.dataset_files)
         self.data_sampler = (
             RandomSampler if args.local_rank == -1 else DistributedSampler
@@ -220,6 +227,7 @@ class PreTrainingDataset(BertDatasetProviderInterface):
     def get_shard(self, epoch):
         if self.dataset_future is None:
             data_file = self._get_shard_file(epoch)
+            logger.info(f"PreTrainingDataset - rank {dist.get_rank()}, current file : {data_file}")
             self.train_dataloader, sample_count = create_pretraining_dataset(
                 input_file=data_file,
                 max_predictions_per_seq=self.max_predictions_per_seq,

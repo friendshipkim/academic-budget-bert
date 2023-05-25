@@ -207,6 +207,7 @@ class PreTrainingDataset(BertDatasetProviderInterface):
     def get_shard(self, index):
         if self.dataset_future is None:
             data_file = self._get_shard_file(index)
+            logger.info(f"PreTrainingDataset - current file : {data_file}")
             self.train_dataloader, sample_count = create_pretraining_dataset(
                 input_file=data_file,
                 max_predictions_per_seq=self.max_predictions_per_seq,

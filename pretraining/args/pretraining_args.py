@@ -65,6 +65,13 @@ class PretrainScriptParamsArguments:
             "help": "Number of epochs between a full checkpoint (used for pre-training)"
         },
     )
+    
+    num_steps_between_checkpoints: Optional[int] = field(
+        default=-1,
+        metadata={
+            "help": "Number of steps between a full checkpoint (used for pre-training)"
+        },
+    )
 
     job_name: Optional[str] = field(
         default="pretraining_experiment",

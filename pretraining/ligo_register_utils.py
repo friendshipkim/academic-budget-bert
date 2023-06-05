@@ -195,6 +195,7 @@ def register_bert(tgt_bert: Type[BertModel], src_bert_list: List[Type[BertModel]
             # TODO: check
             tie_a=None,
             tie_b=None,
+            bias=tgt_bert.pooler.dense_act.bias is not None,
         )
 
 

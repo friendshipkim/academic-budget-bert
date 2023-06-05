@@ -8,22 +8,21 @@ from torch import nn
 from torch.nn import Parameter, ParameterList
 
 
-def init_params(params: Type[ParameterList]):
+def init_params_id(params: Type[ParameterList]):                               
     # p: d2_dim x d1_dim
     assert len(params) == 2
-    
+    # first ligo: [I, 0]
     params[0] = nn.init.eye_(params[0])
-    
+    # second ligo: [0, I]
     d2_dim, d1_dim = params[1].shape
     params[1] = Parameter(torch.flip(nn.init.eye_(params[1]).view(2, d1_dim, d1_dim), dims=[0]).view(d2_dim, d1_dim), requires_grad=True)
-    # dim1, dim2 = p.shape
-    # is_long = dim1 > dim2
-    # src_dim = dim2 if is_long else dim1
-    # long_eye_param = Parameter(torch.concat((torch.eye(src_dim), torch.zeros(src_dim, src_dim)), dim=0))
-    # p = long_eye_param if is_long else long_eye_param.T
-    # breakpoint()
 
 
+def init_params_normal(params: Type[ParameterList]):
+    for p in params:
+        nn.init.normal_(p, mean=0.0, std=0.001)
+    
+    
 def init_params_kaiming(params: Type[ParameterList]):
     for p in params:
         nn.init.kaiming_uniform_(p, a=math.sqrt(5))
@@ -49,7 +48,7 @@ class LigoEmbedding(nn.Module):
                     for _ in range(self.num_src_models)
                 ]
             )
-            init_params(self.ligo_b)
+            init_params_id(self.ligo_b)
         else:
             self.ligo_b = tie_b
 
@@ -86,13 +85,14 @@ class LigoDecoderLinearWeight(nn.Module):
                     for _ in range(self.num_src_models)
                 ]
             )
-            init_params(self.ligo_a)
+            init_params_id(self.ligo_a)
         else:
             self.ligo_a = tie_a
 
         # source weights: [d1_out x d1_in] x n_src
         # average decoder weights to get the same logit value
-        src_weight = [src_module_list[i].weight.detach() / self.num_src_models for i in range(self.num_src_models)]
+        # NOTE: since this is shared with word_embedding, turn it off for now (/ self.num_src_models)
+        src_weight = [src_module_list[i].weight.detach() for i in range(self.num_src_models)]
         for i, p in enumerate(src_weight):
             self.register_buffer(f"src_weight_{i}", p)
 
@@ -126,7 +126,7 @@ class LigoLinearWeight(nn.Module):
                     for _ in range(self.num_src_models)
                 ]
             )
-            init_params(self.ligo_b)
+            init_params_id(self.ligo_b)
         else:
             self.ligo_b = tie_b
 
@@ -137,7 +137,7 @@ class LigoLinearWeight(nn.Module):
                     for _ in range(self.num_src_models)
                 ]
             )
-            init_params(self.ligo_a)
+            init_params_id(self.ligo_a)
         else:
             self.ligo_a = tie_a
 
@@ -181,7 +181,7 @@ class LigoLinearBias(nn.Module):
                     for _ in range(self.num_src_models)
                 ]
             )
-            init_params(self.ligo_b)
+            init_params_id(self.ligo_b)
         else:
             self.ligo_b = tie_b
 
@@ -224,7 +224,7 @@ class LigoLN(nn.Module):
                     for _ in range(self.num_src_models)
                 ]
             )
-            init_params(self.ligo_b)
+            init_params_id(self.ligo_b)
         else:
             self.ligo_b = tie_b
 
@@ -343,3 +343,27 @@ def register_ln(
             ),
         )
 
+
+# ====================================
+# remove functions for Embedding, Linear, and LN
+# ====================================
+def remove_embedding(tgt_emb: Type[nn.Embedding]):
+    parametrize.remove_parametrizations(tgt_emb, "weight", leave_parametrized=True)
+
+
+def remove_linear(
+    tgt_linear: Type[nn.Linear],
+    bias: bool = True,
+):
+    parametrize.remove_parametrizations(tgt_linear, "weight", leave_parametrized=True)
+    if bias:
+        parametrize.remove_parametrizations(tgt_linear, "bias", leave_parametrized=True)
+
+        
+def remove_ln(
+    tgt_ln: Type[nn.Linear],
+    bias: bool = True,
+):
+    parametrize.remove_parametrizations(tgt_ln, "weight", leave_parametrized=True)
+    if bias:
+        parametrize.remove_parametrizations(tgt_ln, "bias", leave_parametrized=True)

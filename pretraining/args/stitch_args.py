@@ -37,6 +37,12 @@ class StitchArguments:
             "help": "Necessary only when stitching 4 models, Path to the second source pretrained model (should contain pytorch_model.bin)"
         },
     )
+    finetuned_model_path: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Path to the parameterized stitched model (should contain pytorch_model.bin)"
+        },
+    )
     skip_layernorm: Optional[bool] = field(
         default=False, metadata={"help": "whether to skip layernorms"}
     )

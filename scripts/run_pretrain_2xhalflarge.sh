@@ -3,10 +3,10 @@
 # and train the stitched model on set 2/3 
 # Train for 20k steps with 4 Titan-RTX gpu
 
-export WANDB_MODE=online
-export CUDA_VISIBLE_DEVICES=0,1,2,3
-# deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
-deepspeed --num_gpus 4 run_pretraining.py \
+export WANDB_MODE=disabled
+# export CUDA_VISIBLE_DEVICES=0,1,2,3
+# deepspeed --num_gpus 4 run_pretraining.py \
+deepspeed --include localhost:0 --master_port 29502 run_pretraining.py \
   --model_type bert-mlm --tokenizer_name bert-large-uncased \
   --hidden_act gelu \
   --hidden_size 512 \
@@ -28,14 +28,14 @@ deepspeed --num_gpus 4 run_pretraining.py \
   --adam_beta1 0.9 \
   --adam_beta2 0.98 \
   --adam_eps 1e-6 \
-  --max_steps 20000 \
-  --num_warmup_steps 1200 \
+  --max_steps 5000 \
+  --num_warmup_steps 300 \
   --print_steps 100 \
   --num_epochs_between_checkpoints 10000 \
-  --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/set23_balanced/ \
+  --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/total_balanced/ \
   --output_dir /n/tata_ddos_ceph/woojeong/saved_models/pretrain/ \
-  --job_name 2xhalflarge-20ksteps \
-  --current_run_id set23-20ksteps-5val \
+  --job_name 2xhalflarge-5ksteps-tmp \
+  --current_run_id set23-5ksteps-5val-tmp \
   --project_name budget-bert-pretraining \
   --validation_epochs 3 \
   --validation_epochs_begin 1 \

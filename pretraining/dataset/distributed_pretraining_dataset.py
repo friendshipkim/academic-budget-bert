@@ -251,6 +251,7 @@ class PreTrainingDataset(BertDatasetProviderInterface):
 
     def prefetch_shard(self, epoch):
         data_file = self._get_shard_file(epoch)
+        logger.info(f"PreTrainingDataset - rank {dist.get_rank()}, current file : {data_file}")
         self.dataset_future = self.pool.submit(
             create_pretraining_dataset,
             data_file,

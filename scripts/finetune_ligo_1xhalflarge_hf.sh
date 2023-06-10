@@ -1,5 +1,5 @@
-export WANDB_MODE=disabled
-export CUDA_VISIBLE_DEVICES=0
+export WANDB_MODE=online
+export CUDA_VISIBLE_DEVICES=1
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 python finetune_ligo.py \
   --model_type bert-mlm --tokenizer_name bert-large-uncased \
@@ -13,7 +13,7 @@ python finetune_ligo.py \
   --encoder_ln_mode pre-ln \
   --lr 5e-5 \
   --train_batch_size 256 \
-  --train_micro_batch_size_per_gpu 32 \
+  --train_micro_batch_size_per_gpu 16 \
   --lr_schedule step \
   --curve linear \
   --gradient_clipping 0.0 \
@@ -28,7 +28,7 @@ python finetune_ligo.py \
   --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20_ver2/set23/ \
   --output_dir /n/tata_ddos_ceph/woojeong/saved_models/ligo-bert/ \
   --job_name 1xhalflarge-hf \
-  --current_run_id set23-100steps-warmup6-bsz256-lr5e-5-noval \
+  --current_run_id set23-100steps-warmup6-bsz256-lr5e-5-noval-init0.001-notie \
   --project_name ligo-finetuning \
   --seed 33 \
   --fp16 \

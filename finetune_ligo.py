@@ -1,12 +1,13 @@
 import torch
 import wandb
 import logging
+import copy
 from tqdm import tqdm
 
 from pretraining.base import BasePretrainModel
 from pretraining.utils import Logger
 from pretraining.schedules import get_scheduler
-from pretraining.ligo_utils import register_models, check_tied_weights
+from pretraining.ligo_register_utils import register_models, check_tied_weights
 from pretraining.dataset.pretraining_dataset import (
     PreTrainingDataset,
     ValidationDataset,
@@ -22,6 +23,10 @@ from run_pretraining import parse_arguments
 # logger = Logger(cuda=torch.cuda.is_available())
 # logging.basicConfig(filename="./finetune_100step_nowarmup_lr2e-4.log", filemode='w', level=logging.INFO)
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def count_parameterized_parameters(model):
+    return sum(p.numel() for n, p in model.named_parameters() if (p.requires_grad) and ("original" not in n))
 
 
 def count_parameters(model):
@@ -49,13 +54,14 @@ def init_ligo(args):
     logging.info(f"Initializing ligo model with {args.num_src_models} models...")
     ligo_stitched_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
     register_models(ligo_stitched_model.network, [src_model.network for src_model in src_model_list])
+    
     # # check if weights are tied properly
     # check_tied_weights(ligo_stitched_model.network)
     
     # delete source models
-    # del src_model_list
+    del src_model_list
 
-    return src_model_list, ligo_stitched_model
+    return ligo_stitched_model
 
 
 def get_valid_dataloader(args, dataset: Dataset):
@@ -117,8 +123,7 @@ def main():
     args = parse_arguments()
     
     # register ligo parameterization
-    src_model_list, target_model = init_ligo(args)
-    model = src_model_list[0]
+    model = init_ligo(args)
     model.network.to(device)
     
     # optimizer, lr scheduler
@@ -131,6 +136,7 @@ def main():
         eps=args.optimizer_args.adam_eps,
         weight_decay=args.optimizer_args.weight_decay,
     )
+    optimizer.zero_grad()
     lr_scheduler = get_scheduler(args.schedule_args, optimizer, args)
     
     # setup W&B logging
@@ -169,11 +175,8 @@ def main():
             # (?: [32, 1], input_ids: [32, 128], attention_mask:[32, 128], token_type_ids (all 0): [32, 128], masked_lm_labels: [32, 128])
             batch = pretrain_dataset_provider.get_batch(batch_index)
             batch = tuple(t.to(device) for t in batch)  # Move to GPU
-            print(batch[1])
             
             loss = model.forward(batch)
-            print(loss)
-            exit()
             
             data_sample_count += args.train_micro_batch_size_per_gpu
             
@@ -181,14 +184,13 @@ def main():
             loss = loss / num_accumulation_steps
             scaled_loss.append(loss.item())
             loss.backward()
-            # model.network.backward(total_loss)
 
             if ((batch_index_number + 1) % num_accumulation_steps == 0):
-                # model.network.step()
                 # Update Optimizer
                 optimizer.step()
                 optimizer.zero_grad()
-                lr_scheduler.step()
+                # Do not update lr scheduler with constant lr
+                # lr_scheduler.step()
                 
                 current_step += 1
                 last_lr = lr_scheduler.get_last_lr()[0]
@@ -210,9 +212,26 @@ def main():
                         eval_losses.append(eval_loss)
                     eval_loss = sum(eval_losses) / len(eval_losses)
                     logging.info(f"val loss: {eval_loss}")
+                    
+                # save checkpoint
+                if current_step % args.num_steps_between_checkpoints == 0:
+                    logging.info(f"Saving checkpoint to {args.saved_model_path}")
+                    model.save_weights(
+                        checkpoint_id=f"epoch{epoch+1}_step{current_step}",
+                        output_dir=args.saved_model_path,
+                        is_deepspeed=False,
+                    )
             
                 if current_step == finetune_steps:
                     logging.info("end of finetuning")
+                    eval_loss = pretrain_validation(args, model, validation_dataset, 0)
+                    logging.info(f"Final val loss: {eval_loss}")
+                    logging.info(f"Saving checkpoint to {args.saved_model_path}")
+                    model.save_weights(
+                        checkpoint_id=f"epoch{epoch+1}_step{current_step}",
+                        output_dir=args.saved_model_path,
+                        is_deepspeed=False,
+                    )
                     return
 
 
@@ -297,5 +316,4 @@ def test_ligo_2models():
 
 
 if __name__ == "__main__":
-    # test_ligo_2models()
     main()

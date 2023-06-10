@@ -6,3 +6,5 @@ wandb
 runs
 profiles
 *.log
+*.out
+*.pkl

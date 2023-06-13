@@ -194,7 +194,7 @@ def main():
                 
                 current_step += 1
                 last_lr = lr_scheduler.get_last_lr()[0]
-                logging.info(f"step: {current_step}, batch index: {batch_index_number}, loss: {sum(scaled_loss)}, lr: {last_lr}")
+                logging.info(f"step: {current_step}, batch index: {batch_index_number+1}, loss: {sum(scaled_loss)}, lr: {last_lr}")
                 report_train_metrics(
                     last_lr,
                     sum(scaled_loss),
@@ -205,13 +205,17 @@ def main():
                 scaled_loss = []
             
                 # run validation
-                if args.do_validation and (current_step % 5 == 0):
+                if args.do_validation and (current_step % 20 == 0):
                     eval_losses = []
                     for shard_index in range(args.validation_shards):
                         eval_loss = pretrain_validation(args, model, validation_dataset, shard_index)
                         eval_losses.append(eval_loss)
                     eval_loss = sum(eval_losses) / len(eval_losses)
                     logging.info(f"val loss: {eval_loss}")
+                    log_info = {
+                        "Validation/Loss": eval_loss,
+                    }
+                    wandb.log(log_info, step=current_step)
                     
                 # save checkpoint
                 if current_step % args.num_steps_between_checkpoints == 0:
@@ -224,14 +228,14 @@ def main():
             
                 if current_step == finetune_steps:
                     logging.info("end of finetuning")
-                    eval_loss = pretrain_validation(args, model, validation_dataset, 0)
-                    logging.info(f"Final val loss: {eval_loss}")
-                    logging.info(f"Saving checkpoint to {args.saved_model_path}")
-                    model.save_weights(
-                        checkpoint_id=f"epoch{epoch+1}_step{current_step}",
-                        output_dir=args.saved_model_path,
-                        is_deepspeed=False,
-                    )
+                    # eval_loss = pretrain_validation(args, model, validation_dataset, 0)
+                    # logging.info(f"Final val loss: {eval_loss}")
+                    # logging.info(f"Saving checkpoint to {args.saved_model_path}")
+                    # model.save_weights(
+                    #     checkpoint_id=f"epoch{epoch+1}_step{current_step}",
+                    #     output_dir=args.saved_model_path,
+                    #     is_deepspeed=False,
+                    # )
                     return
 
 

@@ -92,7 +92,7 @@ class LigoDecoderLinearWeight(nn.Module):
         # source weights: [d1_out x d1_in] x n_src
         # average decoder weights to get the same logit value
         # NOTE: since this is shared with word_embedding, turn it off for now (/ self.num_src_models)
-        src_weight = [src_module_list[i].weight.detach() for i in range(self.num_src_models)]
+        src_weight = [src_module_list[i].weight.detach() / self.num_src_models for i in range(self.num_src_models)]
         for i, p in enumerate(src_weight):
             self.register_buffer(f"src_weight_{i}", p)
 

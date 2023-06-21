@@ -16,7 +16,12 @@ from pretraining.ligo_parameterization import (
     register_embedding,
     register_linear,
     register_ln,
+    set_init_type,
 )
+
+
+# global vars
+tie_flag = True
 
 
 def register_bert_embeddings(
@@ -63,7 +68,7 @@ def register_self_attn(
     register_linear(
         tgt_linear=tgt_self_attn.query,
         src_linear_list=[src_self_attn.query for src_self_attn in src_self_attn_list],
-        tie_a=b_emb,
+        tie_a=b_emb if tie_flag else None,
         tie_b=None,
         bias=tgt_self_attn.query.bias is not None,
     )
@@ -72,7 +77,7 @@ def register_self_attn(
     register_linear(
         tgt_linear=tgt_self_attn.key,
         src_linear_list=[src_self_attn.key for src_self_attn in src_self_attn_list],
-        tie_a=b_emb,
+        tie_a=b_emb if tie_flag else None,
         tie_b=None,
         bias=tgt_self_attn.key.bias is not None,
     )
@@ -81,7 +86,7 @@ def register_self_attn(
     register_linear(
         tgt_linear=tgt_self_attn.value,
         src_linear_list=[src_self_attn.value for src_self_attn in src_self_attn_list],
-        tie_a=b_emb,
+        tie_a=b_emb if tie_flag else None,
         tie_b=None,
         bias=tgt_self_attn.value.bias is not None,
     )
@@ -104,8 +109,8 @@ def register_attn(
     register_linear(
         tgt_linear=tgt_attn.output.dense,
         src_linear_list=[src_attn.output.dense for src_attn in src_attn_list],
-        tie_a=tgt_attn.self.value.parametrizations.weight[0].ligo_b,
-        tie_b=b_emb,
+        tie_a=tgt_attn.self.value.parametrizations.weight[0].ligo_b if tie_flag else None,
+        tie_b=b_emb if tie_flag else None,
         bias=tgt_attn.output.dense.bias is not None,
     )
 
@@ -127,7 +132,7 @@ def register_layer(
     register_linear(
         tgt_linear=tgt_layer.intermediate.dense_act,
         src_linear_list=[src_layer.intermediate.dense_act for src_layer in src_layer_list],
-        tie_a=b_emb,
+        tie_a=b_emb if tie_flag else None,
         tie_b=None,
         bias=tgt_layer.intermediate.dense_act.bias is not None,
     )
@@ -137,8 +142,8 @@ def register_layer(
     register_linear(
         tgt_linear=tgt_layer.output.dense,
         src_linear_list=[src_layer.output.dense for src_layer in src_layer_list],
-        tie_a=tgt_layer.intermediate.dense_act.parametrizations.weight[0].ligo_b,
-        tie_b=b_emb,
+        tie_a=tgt_layer.intermediate.dense_act.parametrizations.weight[0].ligo_b if tie_flag else None,
+        tie_b=b_emb if tie_flag else None,
         bias=tgt_layer.output.dense.bias is not None,
     )
 
@@ -146,13 +151,13 @@ def register_layer(
     register_ln(
         tgt_ln=tgt_layer.PreAttentionLayerNorm,
         src_ln_list=[src_layer.PreAttentionLayerNorm for src_layer in src_layer_list],
-        tie_b=b_emb,
+        tie_b=tgt_layer.attention.output.dense.parametrizations.weight[0].ligo_b,
         bias=tgt_layer.PreAttentionLayerNorm.bias is not None,
     )
     register_ln(
         tgt_ln=tgt_layer.PostAttentionLayerNorm,
         src_ln_list=[src_layer.PostAttentionLayerNorm for src_layer in src_layer_list],
-        tie_b=b_emb,
+        tie_b=tgt_layer.output.dense.parametrizations.weight[0].ligo_b,
         bias=tgt_layer.PostAttentionLayerNorm.bias is not None,
     )
 
@@ -172,9 +177,9 @@ def register_bert(tgt_bert: Type[BertModel], src_bert_list: List[Type[BertModel]
     n_layers = len(tgt_bert.encoder.layer)
     for l in range(n_layers):
         register_layer(
-            tgt_bert.encoder.layer[l],
-            [src_bert_list[i].encoder.layer[l] for i in range(len(src_bert_list))],
-            b_emb
+            tgt_layer=tgt_bert.encoder.layer[l],
+            src_layer_list=[src_bert_list[i].encoder.layer[l] for i in range(len(src_bert_list))],
+            b_emb=b_emb,
         )
 
     # when using hf_architecture, no final LayerNorm and Pooler
@@ -203,6 +208,7 @@ def register_mlm_head(
     tgt_mlm_head: Type[BertOnlyMLMHead],
     src_mlm_head_list: List[Type[BertOnlyMLMHead]],
     b_emb=Type[ParameterList],
+    avg_decoder: bool = False,
 ):
     # register linear in BertPredictionHeadTransform
     # TODO: check if we should share b_emb or learn new ligos
@@ -212,7 +218,7 @@ def register_mlm_head(
         src_linear_list=[
             src_mlm_head.predictions.transform.dense_act for src_mlm_head in src_mlm_head_list
         ],
-        tie_a=b_emb,
+        tie_a=b_emb if tie_flag else None,
         tie_b=None,
         bias=tgt_mlm_head.predictions.transform.dense_act.bias is not None,
     )
@@ -239,10 +245,25 @@ def register_mlm_head(
         tie_b=None,
         bias=tgt_mlm_head.predictions.decoder.bias is not None,
         is_decoder=True,
+        avg_decoder=avg_decoder,
     )
 
 
-def register_models(tgt_model: Type[BertLMHeadModel], src_model_list: Type[BertLMHeadModel]):
+def register_models(
+    tgt_model: Type[BertLMHeadModel],
+    src_model_list: Type[BertLMHeadModel],
+    untie_weights: bool = False,
+    avg_decoder: bool = False,
+    init_type: str = None,
+):
+    global tie_flag
+    
+    # overwrite global vars
+    tie_flag = not untie_weights
+    
+    # set init type
+    set_init_type(init_type)
+    
     # register BertModel
     register_bert(
         tgt_bert=tgt_model.bert,
@@ -254,6 +275,7 @@ def register_models(tgt_model: Type[BertLMHeadModel], src_model_list: Type[BertL
         tgt_mlm_head=tgt_model.cls,
         src_mlm_head_list=[src_model.cls for src_model in src_model_list],
         b_emb=tgt_model.bert.embeddings.word_embeddings.parametrizations.weight[0].ligo_b,
+        avg_decoder=avg_decoder,
     )
 
 

@@ -83,11 +83,23 @@ class BasePretrainModel(object):
         if not config:
             if model_name_or_path is None:
                 logger.info("Loading config from args")
-                # add args.modularize to model config
+                
+                # stitched - diagonal model
                 if model_type == "stitched-bert-mlm":
                     args.model_config["modularize"] = args.modularize
                     args.model_config["add_blend_layer"] = args.add_blend_layer
                     args.model_config["overlap"] = args.overlap
+                
+                # ligo stitched - custom target config
+                elif model_type == "ligo-stitched-bert-mlm":
+                    if args.target_hidden_size == -1:
+                        args.model_config["target_hidden_size"] = args.model_config["hidden_size"] * 2
+                        args.model_config["target_intermediate_size"] = args.model_config["intermediate_size"] * 2
+                        args.model_config["target_num_attention_heads"] = args.model_config["num_attention_heads"] * 2
+                    else:
+                        args.model_config["target_hidden_size"] = args.target_hidden_size
+                        args.model_config["target_intermediate_size"] = args.target_hidden_size * 4
+                        args.model_config["target_num_attention_heads"] = args.target_num_attention_heads
                     
                 # hf arch
                 if args.model_config['hf_architecture']:

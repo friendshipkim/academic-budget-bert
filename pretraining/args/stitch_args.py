@@ -58,6 +58,24 @@ class StitchArguments:
     num_src_models: Optional[int] = field(
         default=2, metadata={"help": "(only for ligo) number of source model to stitch"}
     )
+    
+    # custom target model config
+    target_hidden_size: Optional[int] = field(
+        default=-1, metadata={"help": "hidden size of the target model"}
+    )
+    target_num_attention_heads: Optional[int] = field(
+        default=-1, metadata={"help": "the number of attention heads of the target model"}
+    )
+    
+    untie_weights: Optional[bool] = field(
+        default=False, metadata={"help": "(only for ligo) whether to untie growth operators"}
+    )
+    avg_decoder: Optional[bool] = field(
+        default=False, metadata={"help": "(only for ligo) whether to average decoder weights during finetuning"}
+    )
+    init_type: Optional[str] = field(
+        default="eye", metadata={"help": "(only for ligo) how to initialize growth operators"}
+    )
     profile_model: Optional[bool] = field(
         default=False, metadata={"help": "whether to profile a model, evaluate on 3 batches [10, 20, 30] by default"}
     )

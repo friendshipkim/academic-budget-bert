@@ -2,12 +2,14 @@ import torch
 import wandb
 import logging
 import copy
+import os
 from tqdm import tqdm
 
 from pretraining.base import BasePretrainModel
 from pretraining.utils import Logger
 from pretraining.schedules import get_scheduler
 from pretraining.ligo_register_utils import register_models, check_tied_weights
+from pretraining.ligo_remove_utils import remove_models
 from pretraining.dataset.pretraining_dataset import (
     PreTrainingDataset,
     ValidationDataset,
@@ -46,22 +48,30 @@ def init_ligo(args):
         logging.info(f"Loading source model {src_index} from {src_model_path}")
         src_model = BasePretrainModel(args)
         # checkpoint: OrderedDict with model params
-        checkpoint = torch.load(src_model_path + "pytorch_model.bin")
+        checkpoint = torch.load(os.path.join(src_model_path, "pytorch_model.bin"))
         src_model.network.load_state_dict(checkpoint)
         src_model_list.append(src_model)
     
     # stitched model skeleton
     logging.info(f"Initializing ligo model with {args.num_src_models} models...")
+    logging.info(f"Tie weights: {not args.untie_weights}, Avg decoder: {args.avg_decoder}, Init_type: {args.init_type}")
     ligo_stitched_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
-    register_models(ligo_stitched_model.network, [src_model.network for src_model in src_model_list])
+    
+    register_models(
+        tgt_model=ligo_stitched_model.network,
+        src_model_list=[src_model.network for src_model in src_model_list],
+        untie_weights=args.untie_weights,
+        avg_decoder=args.avg_decoder,
+        init_type=args.init_type,
+    )
     
     # # check if weights are tied properly
     # check_tied_weights(ligo_stitched_model.network)
     
-    # delete source models
-    del src_model_list
+    # # delete source models
+    # del src_model_list
 
-    return ligo_stitched_model
+    return src_model_list, ligo_stitched_model
 
 
 def get_valid_dataloader(args, dataset: Dataset):
@@ -123,7 +133,7 @@ def main():
     args = parse_arguments()
     
     # register ligo parameterization
-    model = init_ligo(args)
+    _, model = init_ligo(args)
     model.network.to(device)
     
     # optimizer, lr scheduler
@@ -203,44 +213,59 @@ def main():
                 )
                 
                 scaled_loss = []
-            
-                # run validation
-                if args.do_validation and (current_step % 20 == 0):
-                    eval_losses = []
-                    for shard_index in range(args.validation_shards):
-                        eval_loss = pretrain_validation(args, model, validation_dataset, shard_index)
-                        eval_losses.append(eval_loss)
-                    eval_loss = sum(eval_losses) / len(eval_losses)
-                    logging.info(f"val loss: {eval_loss}")
-                    log_info = {
-                        "Validation/Loss": eval_loss,
-                    }
-                    wandb.log(log_info, step=current_step)
                     
                 # save checkpoint
-                if current_step % args.num_steps_between_checkpoints == 0:
+                if len(args.num_steps_between_checkpoints) != 0 and (current_step >= args.num_steps_between_checkpoints[0]):
+                    # run validation
+                    if args.do_validation:
+                        eval_losses = []
+                        for shard_index in range(args.validation_shards):
+                            eval_loss = pretrain_validation(args, model, validation_dataset, shard_index)
+                            eval_losses.append(eval_loss)
+                        eval_loss = sum(eval_losses) / len(eval_losses)
+                        logging.info(f"val loss: {eval_loss}")
+                        log_info = {
+                            "Validation/Loss": eval_loss,
+                        }
+                        wandb.log(log_info, step=current_step)
+                    
                     logging.info(f"Saving checkpoint to {args.saved_model_path}")
                     model.save_weights(
                         checkpoint_id=f"epoch{epoch+1}_step{current_step}",
                         output_dir=args.saved_model_path,
                         is_deepspeed=False,
                     )
+                    args.num_steps_between_checkpoints.pop(0)
             
                 if current_step == finetune_steps:
                     logging.info("end of finetuning")
-                    # eval_loss = pretrain_validation(args, model, validation_dataset, 0)
-                    # logging.info(f"Final val loss: {eval_loss}")
-                    # logging.info(f"Saving checkpoint to {args.saved_model_path}")
-                    # model.save_weights(
-                    #     checkpoint_id=f"epoch{epoch+1}_step{current_step}",
-                    #     output_dir=args.saved_model_path,
-                    #     is_deepspeed=False,
-                    # )
+                    
+                    # run validation
+                    if args.do_validation:
+                        eval_losses = []
+                        for shard_index in range(args.validation_shards):
+                            eval_loss = pretrain_validation(args, model, validation_dataset, shard_index)
+                            eval_losses.append(eval_loss)
+                        eval_loss = sum(eval_losses) / len(eval_losses)
+                        logging.info(f"val loss: {eval_loss}")
+                        log_info = {
+                            "Validation/Loss": eval_loss,
+                        }
+                        wandb.log(log_info, step=current_step)
+                    
+                    # save checkpoint
+                    logging.info(f"Saving checkpoint to {args.saved_model_path}")
+                    model.save_weights(
+                        checkpoint_id=f"epoch{epoch+1}_step{current_step}",
+                        output_dir=args.saved_model_path,
+                        is_deepspeed=False,
+                    )
                     return
 
 
-def test_ligo_2models():
+def sanity_2models_eyeinit():
     args = parse_arguments()
+    args.init_type = 'eye'
     
     # register ligo parameterization
     src_model_list, target_model = init_ligo(args)
@@ -274,13 +299,13 @@ def test_ligo_2models():
             
             # [32, 128, 1024]
             tgt_emb_out = tgt_model.network.bert.embeddings(input_ids, token_type_ids, skip_ln_dp=True)
-            assert torch.isclose(torch.concat((src_emb_out0, src_emb_out1), dim=-1), tgt_emb_out).all()
+            assert torch.allclose(torch.concat((src_emb_out0, src_emb_out1), dim=-1), tgt_emb_out, atol=1e-6)
         
             # bert layer output
             src_layer_out0 = src_model_list[0].network.bert.encoder.layer[0](src_emb_out0, extended_attention_mask, skip_ln_dp=True)
             src_layer_out1 = src_model_list[1].network.bert.encoder.layer[0](src_emb_out1, extended_attention_mask, skip_ln_dp=True)
             tgt_layer_out = tgt_model.network.bert.encoder.layer[0](tgt_emb_out, extended_attention_mask, skip_ln_dp=True)
-            assert torch.isclose(torch.concat((src_layer_out0[0], src_layer_out1[0]), dim=-1), tgt_layer_out[0]).all()
+            assert torch.allclose(torch.concat((src_layer_out0[0], src_layer_out1[0]), dim=-1), tgt_layer_out[0], atol=1e-6)
             
             # encoder output -> nan at last
             src_enc_out0 = src_model_list[0].network.bert.encoder(src_emb_out0, extended_attention_mask, skip_ln_dp=True)
@@ -289,17 +314,18 @@ def test_ligo_2models():
             
             # cls predictions transform
             # [481, 30528]
-            src_trans_out0 = src_model_list[0].network.cls.predictions.transform(src_emb_out0)
-            src_trans_out1 = src_model_list[1].network.cls.predictions.transform(src_emb_out1)
-            tgt_trans_out = tgt_model.network.cls.predictions.transform(tgt_emb_out)
-            assert torch.isclose(torch.concat((src_trans_out0, src_trans_out1), dim=-1), tgt_trans_out).all()
+            src_trans_out0 = src_model_list[0].network.cls.predictions.transform(src_emb_out0, skip_ln_dp=True)
+            src_trans_out1 = src_model_list[1].network.cls.predictions.transform(src_emb_out1, skip_ln_dp=True)
+            tgt_trans_out = tgt_model.network.cls.predictions.transform(tgt_emb_out, skip_ln_dp=True)
+            assert torch.allclose(torch.concat((src_trans_out0, src_trans_out1), dim=-1), tgt_trans_out, atol=1e-6)
             
             # cls predictions
             # [481, 30528]
-            src_pred_out0 = src_model_list[0].network.cls(src_emb_out0, masked_token_indexes)
-            src_pred_out1 = src_model_list[1].network.cls(src_emb_out1, masked_token_indexes)
-            tgt_pred_out = tgt_model.network.cls(tgt_emb_out, masked_token_indexes)
-            assert torch.isclose((src_pred_out0 + src_pred_out1) / 2, tgt_pred_out, atol=1e-6).all()
+            src_pred_out0 = src_model_list[0].network.cls(src_emb_out0, masked_token_indexes, skip_ln_dp=True)
+            src_pred_out1 = src_model_list[1].network.cls(src_emb_out1, masked_token_indexes, skip_ln_dp=True)
+            tgt_pred_out = tgt_model.network.cls(tgt_emb_out, masked_token_indexes, skip_ln_dp=True)
+            avg_factor = 1 if not args.avg_decoder else args.num_src_models
+            assert torch.allclose((src_pred_out0 + src_pred_out1) / avg_factor, tgt_pred_out, atol=1e-6)
             
             def _get_loss(prediction_scores):
                 loss_fct = CrossEntropyLoss(ignore_index=-1)
@@ -317,7 +343,115 @@ def test_ligo_2models():
             
         breakpoint()
         exit()
+        
+        
+def sanity_2models_remove():
+    args = parse_arguments()
+    
+    # # register ligo parameterization
+    # _, stitched_model = init_ligo(args)
+    # stitched_model.network.to(device)
+    
+    src_model_list = [BasePretrainModel(args) for _ in range(args.num_src_models)]
+    
+    logging.info(f"Initializing parameterized model with {args.num_src_models} models...")
+    param_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
+    register_models(
+        tgt_model=param_model.network,
+        src_model_list=[src_model.network for src_model in src_model_list],
+        untie_weights=args.untie_weights,
+        avg_decoder=args.avg_decoder,
+        init_type=args.init_type,
+    )
+
+    param_model_path = "/home/wk247/saved_models/ligo-bert/2xhalflarge-hf-set23-100steps-nowarmup-bsz512-lr1e-5-eyeinit-notie-val20-base512-2e-4/set23-100steps-nowarmup-bsz512-lr1e-5-eyeinit-notie-val20-base512-2e-4/epoch1_step100"
+    logging.info(f"Loading parameterized target model from {param_model_path}")
+    param_checkpoint = torch.load(os.path.join(param_model_path, "pytorch_model.bin"))
+    param_model.network.load_state_dict(param_checkpoint)
+    param_model.eval()
+    param_model.network.to(device)
+    
+    if not os.path.exists(os.path.join(param_model_path, "removed")):
+        logging.info("Removing parameterization")
+        remove_models(param_model.network)
+        logging.info(f"Saving non-parameterized model to {param_model_path}/removed")
+        param_model.save_weights(
+            checkpoint_id="removed",
+            output_dir=param_model_path,
+            is_deepspeed=False,
+        )
+        exit()
+    
+    logging.info("Loading removed target model")
+    removed_model = BasePretrainModel(args, model_type="stitched-bert-mlm")
+    removed_checkpoint = torch.load(os.path.join(param_model_path, "removed/pytorch_model.bin"))
+    removed_model.network.load_state_dict(removed_checkpoint)
+    removed_model.eval()
+    removed_model.network.to(device)
+    
+    # datasets
+    pretrain_dataset_provider = PreTrainingDataset(args, logger=args.logger)
+    dataset_iterator, total_length = pretrain_dataset_provider.get_shard(0)
+    for batch_index_number, batch_index in enumerate(tqdm(dataset_iterator, smoothing=1)):
+        batch = pretrain_dataset_provider.get_batch(batch_index)
+        batch = tuple(t.to(device) for t in batch)  # Move to GPU
+        
+        input_ids = batch[1]  # [32, 128]
+        attention_mask = batch[2]
+        extended_attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)  # [32, 128]
+        token_type_ids = batch[3]  # (all 0): [32, 128]
+        masked_lm_labels = batch[4]  # [32, 128]
+        masked_token_indexes = torch.nonzero((masked_lm_labels + 1).view(-1), as_tuple=False).view(-1)
+        
+        # check if param_model's decoder and word embeddings are tied
+        word_weight_0 = param_model.network.bert.embeddings.word_embeddings.parametrizations.weight[0].src_weight_0.detach()  # [30528, 512]
+        decoder_weight_0 = param_model.network.cls.predictions.decoder.parametrizations.weight[0].src_weight_0.detach()  # [30528, 512]
+        
+        word_weight_1 = param_model.network.bert.embeddings.word_embeddings.parametrizations.weight[0].src_weight_1.detach()
+        decoder_weight_1 = param_model.network.cls.predictions.decoder.parametrizations.weight[0].src_weight_1.detach()
+        
+        assert torch.allclose(word_weight_0, decoder_weight_0)
+        assert torch.allclose(word_weight_1, decoder_weight_1)
+        
+        # check if ligo params of word embeddings and decoder is tied
+        word_ligo_b_0 = param_model.network.bert.embeddings.word_embeddings.parametrizations.weight[0].ligo_b[0].detach()  # [1024, 512]
+        decoder_ligo_a_0 = param_model.network.cls.predictions.decoder.parametrizations.weight[0].ligo_a[0].detach()  # [1024, 512]
+        
+        word_ligo_b_1 = param_model.network.bert.embeddings.word_embeddings.parametrizations.weight[0].ligo_b[1].detach()  # [1024, 512]
+        decoder_ligo_a_1 = param_model.network.cls.predictions.decoder.parametrizations.weight[0].ligo_a[1].detach()  # [1024, 512]
+        
+        assert torch.allclose(word_ligo_b_0, decoder_ligo_a_0)
+        assert torch.allclose(word_ligo_b_1, decoder_ligo_a_1)
+        
+        # check if output weights are the same
+        word_weight = torch.mm(word_weight_0, word_ligo_b_0.T) + torch.mm(word_weight_1, word_ligo_b_1.T)
+        decoder_weight = torch.mm(decoder_weight_0, decoder_ligo_a_0.T) + torch.mm(decoder_weight_1, decoder_ligo_a_1.T)
+        
+        assert torch.allclose(word_weight, decoder_weight)
+        
+        # check if removed weights are the same
+        word_weight_removed = removed_model.network.bert.embeddings.word_embeddings.weight.detach()
+        decoder_weight_removed = removed_model.network.cls.predictions.decoder.weight.detach()
+        
+        assert torch.allclose(word_weight, word_weight_removed)
+        assert torch.allclose(decoder_weight, decoder_weight_removed)
+        
+        # check outputs (masked_lm_loss, sequence_output, prediction_scores)
+        param_output = param_model.network(batch)
+        removed_output = removed_model.network(batch)
+        
+        for i in range(3):
+            assert torch.allclose(param_output[i], removed_output[i])
+            
+        breakpoint()
+        
+        # result
+        # 2xhalflarge-hf-set23-100steps-nowarmup-bsz512-lr1e-5-eyeinit-noavg-val20-base512-2e-4 - pass
+        # 2xhalflarge-hf-set23-100steps-nowarmup-bsz512-lr1e-5-eyeinit-notie-val20-base512-2e-4 - weights are not averaged
+
+        exit()
 
 
 if __name__ == "__main__":
     main()
+    # sanity_2models_remove()

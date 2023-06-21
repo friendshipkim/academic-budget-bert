@@ -8,24 +8,55 @@ from torch import nn
 from torch.nn import Parameter, ParameterList
 
 
-def init_params_id(params: Type[ParameterList]):                               
+# ====================================
+# Ligo init functions
+# ====================================
+
+
+def init_eye(params: Type[ParameterList]):                       
     # p: d2_dim x d1_dim
     assert len(params) == 2
     # first ligo: [I, 0]
     params[0] = nn.init.eye_(params[0])
     # second ligo: [0, I]
     d2_dim, d1_dim = params[1].shape
-    params[1] = Parameter(torch.flip(nn.init.eye_(params[1]).view(2, d1_dim, d1_dim), dims=[0]).view(d2_dim, d1_dim), requires_grad=True)
+    # params[1] = Parameter(torch.flip(nn.init.eye_(params[1]).view(2, d1_dim, d1_dim), dims=[0]).view(d2_dim, d1_dim), requires_grad=True)
+    params[1] = Parameter(torch.concat([torch.zeros(d2_dim - d1_dim, d1_dim), torch.eye(d1_dim)], dim=0), requires_grad=True)
 
 
-def init_params_normal(params: Type[ParameterList]):
+def init_normal(params: Type[ParameterList]):
     for p in params:
         nn.init.normal_(p, mean=0.0, std=0.001)
     
     
-def init_params_kaiming(params: Type[ParameterList]):
+def init_kaiming(params: Type[ParameterList]):
     for p in params:
         nn.init.kaiming_uniform_(p, a=math.sqrt(5))
+        
+
+def init_net2net(params: Type[ParameterList]):
+    # TODO: implement net2net initialization
+    return
+
+        
+init_func_dict = {
+    'eye': init_eye,
+    'normal': init_normal,
+    'kaiming': init_kaiming,
+    'net2net': init_net2net,
+}
+
+init_type = None
+
+
+def set_init_type(init_type_):
+    global init_type
+    init_type = init_type_
+
+
+# ====================================
+# Ligo classes
+# ====================================
 
 
 class LigoEmbedding(nn.Module):
@@ -48,7 +79,7 @@ class LigoEmbedding(nn.Module):
                     for _ in range(self.num_src_models)
                 ]
             )
-            init_params_id(self.ligo_b)
+            init_func_dict[init_type](self.ligo_b)
         else:
             self.ligo_b = tie_b
 
@@ -71,7 +102,7 @@ class LigoEmbedding(nn.Module):
 
 
 class LigoDecoderLinearWeight(nn.Module):
-    def __init__(self, in_dim, src_module_list, tie_a=None):
+    def __init__(self, in_dim, src_module_list, tie_a=None, avg_decoder=False):
         super().__init__()
         self.num_src_models = len(src_module_list)
         src_in_dim = src_module_list[0].in_features
@@ -85,14 +116,15 @@ class LigoDecoderLinearWeight(nn.Module):
                     for _ in range(self.num_src_models)
                 ]
             )
-            init_params_id(self.ligo_a)
+            init_func_dict[init_type](self.ligo_a)
         else:
             self.ligo_a = tie_a
 
         # source weights: [d1_out x d1_in] x n_src
         # average decoder weights to get the same logit value
         # NOTE: since this is shared with word_embedding, turn it off for now (/ self.num_src_models)
-        src_weight = [src_module_list[i].weight.detach() / self.num_src_models for i in range(self.num_src_models)]
+        avg_factor = 1 if not avg_decoder else self.num_src_models
+        src_weight = [src_module_list[i].weight.detach() / avg_factor for i in range(self.num_src_models)]
         for i, p in enumerate(src_weight):
             self.register_buffer(f"src_weight_{i}", p)
 
@@ -126,7 +158,7 @@ class LigoLinearWeight(nn.Module):
                     for _ in range(self.num_src_models)
                 ]
             )
-            init_params_id(self.ligo_b)
+            init_func_dict[init_type](self.ligo_b)
         else:
             self.ligo_b = tie_b
 
@@ -137,7 +169,7 @@ class LigoLinearWeight(nn.Module):
                     for _ in range(self.num_src_models)
                 ]
             )
-            init_params_id(self.ligo_a)
+            init_func_dict[init_type](self.ligo_a)
         else:
             self.ligo_a = tie_a
 
@@ -181,7 +213,7 @@ class LigoLinearBias(nn.Module):
                     for _ in range(self.num_src_models)
                 ]
             )
-            init_params_id(self.ligo_b)
+            init_func_dict[init_type](self.ligo_b)
         else:
             self.ligo_b = tie_b
 
@@ -224,7 +256,7 @@ class LigoLN(nn.Module):
                     for _ in range(self.num_src_models)
                 ]
             )
-            init_params_id(self.ligo_b)
+            init_func_dict[init_type](self.ligo_b)
         else:
             self.ligo_b = tie_b
 
@@ -271,6 +303,7 @@ def register_linear(
     tie_b: Type[ParameterList],
     bias: bool = True,
     is_decoder: bool = False,
+    avg_decoder: bool = False,
 ):
     # apply ligo to weight
     if not is_decoder:
@@ -306,6 +339,7 @@ def register_linear(
                 in_dim=tgt_linear.in_features,
                 src_module_list=src_linear_list,
                 tie_a=tie_a,
+                avg_decoder=avg_decoder,
             ),
         )
         if bias:

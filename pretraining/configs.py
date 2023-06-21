@@ -95,6 +95,9 @@ class LigoStitchedPretrainedBertConfig(StitchedPretrainedBertConfig):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.num_src_models = kwargs.get("num_src_models", 2)
+        self.hidden_size = kwargs.get("target_hidden_size", self.hidden_size)
+        self.intermediate_size = kwargs.get("target_intermediate_size", self.intermediate_size)
+        self.num_attention_heads = kwargs.get("target_num_attention_heads", self.num_attention_heads)
     
 
 class PretrainedRobertaConfig(PretrainedBertConfig):

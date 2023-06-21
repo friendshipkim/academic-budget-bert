@@ -5,7 +5,7 @@ export WANDB_MODE=online
 export CUDA_VISIBLE_DEVICES=0,1
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 export NCCL_P2P_LEVEL=NVL
-deepspeed --num_gpus 2 --master_port 29504 run_pretraining.py \
+deepspeed --num_gpus 2 --master_port 29500 run_pretraining.py \
   --model_type bert-mlm --tokenizer_name bert-large-uncased \
   --hidden_act gelu \
   --hidden_size 768 \
@@ -15,7 +15,7 @@ deepspeed --num_gpus 2 --master_port 29504 run_pretraining.py \
   --hidden_dropout_prob 0.1 \
   --attention_probs_dropout_prob 0.1 \
   --encoder_ln_mode post-ln \
-  --lr 1e-4 \
+  --lr 2e-4 \
   --train_batch_size 512 \
   --train_micro_batch_size_per_gpu 256 \
   --lr_schedule step \
@@ -26,22 +26,22 @@ deepspeed --num_gpus 2 --master_port 29504 run_pretraining.py \
   --adam_beta1 0.9 \
   --adam_beta2 0.98 \
   --adam_eps 1e-6 \
-  --max_steps 200000 \
-  --num_warmup_steps 5000 \
+  --max_steps 100000 \
+  --num_warmup_steps 2500 \
   --warmup_proportion 0.025 \
   --print_steps 100 \
   --num_epochs_between_checkpoints 100 \
-  --dataset_path /home/wk247/data/enwiki_books_128_20_ver2/total \
-  --output_dir /home/wk247/saved_models/pretrain/ \
-  --job_name sqrtlarge-768 \
-  --current_run_id total-bsz512-200ksteps-5val-lr1e-4 \
+  --dataset_path /home/wk247/data/enwiki_books_128_20_ver3/set01_1000 \
+  --output_dir /home/wk247/saved_models/pretrain-2steps/ \
+  --job_name sqrtlarge-768-hf \
+  --current_run_id set01-bsz512-100ksteps-2.5kwarmup-5val-lr2e-4 \
   --project_name budget-bert-pretraining \
   --validation_epochs 3 \
   --validation_epochs_begin 1 \
   --validation_epochs_end 1 \
   --validation_begin_proportion 0.05 \
   --validation_end_proportion 0.01 \
-  --validation_micro_batch 256 \
+  --validation_micro_batch 128 \
   --validation_shards 5 \
   --deepspeed \
   --data_loader_type dist \

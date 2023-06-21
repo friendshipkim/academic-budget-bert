@@ -2,10 +2,10 @@
 eval "$(conda shell.bash hook)"
 conda activate pretrain
 export WANDB_MODE=online
-export CUDA_VISIBLE_DEVICES=0,1
+export CUDA_VISIBLE_DEVICES=0
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 export NCCL_P2P_LEVEL=NVL
-deepspeed --num_gpus 2 --master_port 29506 run_pretraining.py \
+deepspeed --num_gpus 1 run_pretraining.py \
   --model_type bert-mlm --tokenizer_name bert-large-uncased \
   --hidden_act gelu \
   --hidden_size 512 \
@@ -15,8 +15,8 @@ deepspeed --num_gpus 2 --master_port 29506 run_pretraining.py \
   --hidden_dropout_prob 0.1 \
   --attention_probs_dropout_prob 0.1 \
   --encoder_ln_mode post-ln \
-  --lr 1e-3 \
-  --train_batch_size 4096 \
+  --lr 2e-4 \
+  --train_batch_size 512 \
   --train_micro_batch_size_per_gpu 256 \
   --lr_schedule step \
   --curve linear \
@@ -26,15 +26,14 @@ deepspeed --num_gpus 2 --master_port 29506 run_pretraining.py \
   --adam_beta1 0.9 \
   --adam_beta2 0.98 \
   --adam_eps 1e-6 \
-  --max_steps 10000 \
-  --num_warmup_steps 600 \
-  --warmup_proportion 0.06 \
+  --max_steps 50000 \
+  --num_warmup_steps 1250 \
+  --warmup_proportion 0.025 \
   --print_steps 100 \
-  --num_epochs_between_checkpoints 100 \
-  --dataset_path /home/wk247/data/enwiki_books_128_20_ver2/set0 \
-  --output_dir /home/wk247/saved_models/pretrain/ \
-  --job_name halflarge \
-  --current_run_id set0-disjoint-bsz4096-10ksteps-5val-lr1e-3-hf \
+  --dataset_path /home/wk247/data/enwiki_books_128_20_ver3/set2_500 \
+  --output_dir /home/wk247/saved_models/pretrain-2steps/ \
+  --job_name halflarge-hf \
+  --current_run_id set2-bsz512-50ksteps-1.2kwarmup-5val-lr2e-4 \
   --project_name budget-bert-pretraining \
   --validation_epochs 3 \
   --validation_epochs_begin 1 \

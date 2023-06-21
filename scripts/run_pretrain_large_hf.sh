@@ -1,11 +1,11 @@
 #!/bin/bash
 eval "$(conda shell.bash hook)"
 conda activate pretrain
-export WANDB_MODE=online
-export CUDA_VISIBLE_DEVICES=0,1,2,3
+export WANDB_MODE=disabled
+export CUDA_VISIBLE_DEVICES=0,1
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 export NCCL_P2P_LEVEL=NVL
-deepspeed --num_gpus 4 --master_port 29502 run_pretraining.py \
+deepspeed --num_gpus 2 --master_port 29506 run_pretraining.py \
   --model_type bert-mlm --tokenizer_name bert-large-uncased \
   --hidden_act gelu \
   --hidden_size 1024 \
@@ -15,9 +15,9 @@ deepspeed --num_gpus 4 --master_port 29502 run_pretraining.py \
   --hidden_dropout_prob 0.1 \
   --attention_probs_dropout_prob 0.1 \
   --encoder_ln_mode post-ln \
-  --lr 1e-4 \
+  --lr 2e-4 \
   --train_batch_size 512 \
-  --train_micro_batch_size_per_gpu 128 \
+  --train_micro_batch_size_per_gpu 64 \
   --lr_schedule step \
   --curve linear \
   --gradient_clipping 1.0 \
@@ -34,7 +34,7 @@ deepspeed --num_gpus 4 --master_port 29502 run_pretraining.py \
   --dataset_path /home/wk247/data/enwiki_books_128_20_ver2/total \
   --output_dir /home/wk247/saved_models/pretrain/ \
   --job_name large \
-  --current_run_id total-bsz512-200ksteps-5val-lr1e-4 \
+  --current_run_id total-bsz512-200ksteps-20kwarmup-5val-lr2e-4 \
   --project_name budget-bert-pretraining \
   --validation_epochs 3 \
   --validation_epochs_begin 1 \

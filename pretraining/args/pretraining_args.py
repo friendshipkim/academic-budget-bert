@@ -88,6 +88,13 @@ class PretrainScriptParamsArguments:
             "help": "Maximum number of training steps of effective batch size to complete."
         },
     )
+    
+    early_stop_steps: Optional[int] = field(
+        default=9223372036854775807,
+        metadata={
+            "help": "Maximum number of training steps for early stopping."
+        },
+    )
 
     max_steps_per_epoch: Optional[int] = field(
         default=9223372036854775807,
@@ -185,7 +192,7 @@ class PretrainScriptParamsArguments:
     )
 
     early_stop_time: Optional[int] = field(
-        default=720,
+        default=1000000000,
         metadata={
             "help": "The point after which the run should perform well enough? (in MINUTES)"
         },

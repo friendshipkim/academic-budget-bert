@@ -417,7 +417,7 @@ class BertEmbeddings(nn.Module):
 
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
-    def forward(self, input_ids, token_type_ids=None, skip_ln_dp=None):
+    def forward(self, input_ids, token_type_ids=None, skip_ln_dp=False):
         seq_length = input_ids.size(1)
         position_ids = torch.arange(
             seq_length, dtype=torch.long, device=input_ids.device
@@ -813,10 +813,10 @@ class BertPredictionHeadTransform(nn.Module):
         BertLayerNorm = get_layer_norm_type(config)
         self.LayerNorm = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
-    def forward(self, hidden_states):
+    def forward(self, hidden_states, skip_ln_dp):
         # input is 2D - [# of masked tokens, d]
         hidden_states = self.dense_act(hidden_states)
-        if self.config.useLN:
+        if self.config.useLN and not skip_ln_dp:
             hidden_states = self.LayerNorm(hidden_states)
 
         return hidden_states
@@ -840,16 +840,16 @@ class BertLMPredictionHead(nn.Module):
         # sparse mask prediction
         self.sparse_predict = config.sparse_mask_prediction
         if not config.sparse_mask_prediction:
-            self.decoder.bias = self.bias  
+            self.decoder.bias = self.bias
 
-    def forward(self, hidden_states, masked_token_indexes):
+    def forward(self, hidden_states, masked_token_indexes, skip_ln_dp):
         if self.sparse_predict:
             # transform hidden_states [bsz, seq_len, d] -> [# of masked tokens, d]
             if masked_token_indexes is not None:
                 hidden_states = hidden_states.view(-1, hidden_states.shape[-1])[
                     masked_token_indexes
                 ]
-        hidden_states = self.transform(hidden_states)
+        hidden_states = self.transform(hidden_states, skip_ln_dp)
         hidden_states = self.decoder(hidden_states)
         if not self.sparse_predict:
             hidden_states = torch.index_select(
@@ -863,8 +863,8 @@ class BertOnlyMLMHead(nn.Module):
         super(BertOnlyMLMHead, self).__init__()
         self.predictions = BertLMPredictionHead(config, bert_model_embedding_weights)
 
-    def forward(self, sequence_output, masked_token_indexes=None):
-        prediction_scores = self.predictions(sequence_output, masked_token_indexes)
+    def forward(self, sequence_output, masked_token_indexes=None, skip_ln_dp=False):
+        prediction_scores = self.predictions(sequence_output, masked_token_indexes, skip_ln_dp)
         return prediction_scores
 
 
@@ -1129,6 +1129,7 @@ class BertLMHeadModel(BertPreTrainedModel):
                 prediction_scores.view(-1, self.config.vocab_size), target
             )
 
+            # outputs = (masked_lm_loss, sequence_output, prediction_scores)
             outputs = (masked_lm_loss,)
             if output_attentions:
                 outputs += (bert_output[-1],)

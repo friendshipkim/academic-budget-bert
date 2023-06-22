@@ -72,6 +72,13 @@ class PretrainScriptParamsArguments:
             "help": "Number of steps between a full checkpoint (used for pre-training)"
         },
     )
+    
+    checkpoint_eval_loss: Optional[float] = field(
+        default=-1.0,
+        metadata={
+            "help": "The loss value of the checkpoint to load (used for pre-training)"
+        },
+    )
 
     job_name: Optional[str] = field(
         default="pretraining_experiment",

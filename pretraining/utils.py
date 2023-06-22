@@ -120,3 +120,7 @@ def set_seeds(seed):
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
+def count_parameterized_parameters(model):
+    return sum(p.numel() for n, p in model.named_parameters() if (p.requires_grad) and ("original" not in n))

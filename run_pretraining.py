@@ -50,8 +50,6 @@ from timeit import default_timer as get_now
 # for stitching
 from pretraining.args.stitch_args import StitchArguments
 from pretraining.stitch_utils import stitch
-from pretraining.ligo_register_utils import register_models
-from pretraining.ligo_remove_utils import remove_models
 
 # profiling
 from deepspeed.profiling.flops_profiler import FlopsProfiler
@@ -123,10 +121,12 @@ def pretrain_validation(args, model, validation_dataset, step, shard_index=0):
     return eval_loss
 
 
-def create_finetune_job(args, index, global_step, model):
+def create_finetune_job(args, index, global_step, model, eval_loss=None):
     try:
-
-        checkpoint_id = f"epoch{index}_step{global_step}"
+        if eval_loss is None:
+            checkpoint_id = f"epoch{index}_step{global_step}"
+        else:
+            checkpoint_id = f"epoch{index}_step{global_step}_loss{eval_loss:.3f}"
         model.save_weights(
             checkpoint_id=checkpoint_id,
             output_dir=args.saved_model_path,
@@ -325,22 +325,22 @@ def train(
 
     logger.info(f"Epoch {index}: check whether to run validation...")
     if validation_dataset is not None and scale_counter_at_1 < args.scale_cnt_limit:
-        time_diff = get_time_diff_hours(get_now(), args.exp_start_marker)
-        if should_run_validation(time_diff, args, epoch=index):
-            logger.info("Running validation...")
-            eval_losses = []
-            for shard_index in range(args.validation_shards):
-                eval_loss = pretrain_validation(args, model, validation_dataset, global_step, shard_index)
-                eval_losses.append(eval_loss)
-            eval_loss = sum(eval_losses) / len(eval_losses)
-                       
-            # log average loss
-            logger.info(f"Average Validation Loss for epoch/step {index}/{global_step} is: {eval_loss}")
-            if master_process(args):
-                log_info = {
-                    "Validation/Loss": eval_loss,
-                }
-                wandb.log(log_info, step=global_step)
+        # time_diff = get_time_diff_hours(get_now(), args.exp_start_marker)
+        # if should_run_validation(time_diff, args, epoch=index):
+        logger.info("Running validation...")
+        eval_losses = []
+        for shard_index in range(args.validation_shards):
+            eval_loss = pretrain_validation(args, model, validation_dataset, global_step, shard_index)
+            eval_losses.append(eval_loss)
+        eval_loss = sum(eval_losses) / len(eval_losses)
+                    
+        # log average loss
+        logger.info(f"Average Validation Loss for epoch/step {index}/{global_step} is: {eval_loss}")
+        if master_process(args):
+            log_info = {
+                "Validation/Loss": eval_loss,
+            }
+            wandb.log(log_info, step=global_step)
 
     logger.info(f"Epoch {index}: check if time to save a fine-tune checkpoint")
     if (is_time_to_finetune(
@@ -620,44 +620,16 @@ def stitch_models(args):
 
 def load_finetuned_model(args):
     # if non-parameterized model exists
-    if os.path.exists(os.path.join(args.finetuned_model_path, "removed/")):
+    removed_model_path = os.path.join(args.finetuned_model_path, "removed/")
+    if os.path.exists(removed_model_path):
         logger.info(f"Loading parameterized target model from {args.finetuned_model_path}")
         stitched_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
-        stitched_checkpoint = torch.load(os.path.join(args.finetuned_model_path, "removed/pytorch_model.bin"))
+        stitched_checkpoint = torch.load(os.path.join(removed_model_path, "pytorch_model.bin"))
         stitched_model.network.load_state_dict(stitched_checkpoint)
         
         return stitched_model
-    
     else:
-        # Load two pre-training model skeletons + supplied model config
-        src_model_list = [BasePretrainModel(args) for _ in range(args.num_src_models)]
-        
-        # stitched model skeleton
-        logging.info(f"Initializing parameterized model with {args.num_src_models} models...")
-        stitched_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
-        register_models(
-            tgt_model=stitched_model.network,
-            src_model_list=[src_model.network for src_model in src_model_list],
-            untie_weights=args.untie_weights,
-            avg_decoder=args.avg_decoder,
-            init_type=args.init_type,
-        )
-
-        logger.info(f"Loading parameterized target model from {args.finetuned_model_path}")
-        stitched_checkpoint = torch.load(os.path.join(args.finetuned_model_path, "pytorch_model.bin"))
-        stitched_model.network.load_state_dict(stitched_checkpoint)
-        
-        logger.info("Removing parameterization")
-        remove_models(stitched_model.network)
-
-        logger.info(f"Saving non-parameterized model to {args.finetuned_model_path}/removed")
-        stitched_model.save_weights(
-            checkpoint_id="removed",
-            output_dir=args.finetuned_model_path,
-            is_deepspeed=False,
-        )
-        
-        logger.info("Exiting the program, please resume with the saved checkpoint")
+        logger.info(f"Exiting the program. No parameterized model exists at {removed_model_path}")
         exit()
 
 
@@ -667,8 +639,8 @@ def check_if_early_stop(eval_loss, scale_counter, args, global_step):
     if global_step >= args.early_stop_steps:
         return True
     
-    if eval_loss <= args.early_stop_eval_loss:
-        return True
+    # if (eval_loss is not None) and  eval_loss <= args.early_stop_eval_loss:
+    #     return True
 
     return False
     # enable only step early stopping for now
@@ -753,6 +725,15 @@ def start_training(args, model, optimizer, lr_scheduler, start_epoch):
                 
                 if len(args.num_steps_between_checkpoints) == 0:
                     args.save_intermediate_checkpoints = False
+        
+        # save checkpoint at early stopping loss
+        if (eval_loss is not None) and (eval_loss <= args.checkpoint_eval_loss) and master_process(args):
+            logger.info(f"Global step: {global_step}, early stopping loss: {args.early_stop_eval_loss} > eval_loss: {eval_loss:.3f}, saving checkpoint")
+            create_finetune_job(args, index + 1, global_step, model, eval_loss)
+            
+            # set checkpoint_eval_loss to -1.0 to prevent further checkpointing
+            args.checkpoint_eval_loss = -1.0
+            logger.info("Contiune training")
 
         # save a checkpoint
         if (index > 0 and args.num_epochs_between_checkpoints > 0 and

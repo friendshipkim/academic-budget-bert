@@ -2,11 +2,12 @@ import torch
 import wandb
 import logging
 import copy
+import glob
 import os
 from tqdm import tqdm
 
 from pretraining.base import BasePretrainModel
-from pretraining.utils import Logger
+from pretraining.utils import count_parameters, count_parameterized_parameters
 from pretraining.schedules import get_scheduler
 from pretraining.ligo_register_utils import register_models, check_tied_weights
 from pretraining.ligo_remove_utils import remove_models
@@ -25,14 +26,6 @@ from run_pretraining import parse_arguments
 # logger = Logger(cuda=torch.cuda.is_available())
 # logging.basicConfig(filename="./finetune_100step_nowarmup_lr2e-4.log", filemode='w', level=logging.INFO)
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
-
-def count_parameterized_parameters(model):
-    return sum(p.numel() for n, p in model.named_parameters() if (p.requires_grad) and ("original" not in n))
-
-
-def count_parameters(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
 def init_ligo(args):
@@ -260,7 +253,78 @@ def main():
                         output_dir=args.saved_model_path,
                         is_deepspeed=False,
                     )
+                    
+                    # save non-parameterized models under args.saved_model_path
+                    del dataset_iterator
+                    del model
+                    logging.info("Saving non-parameterized models to 'args.saved_model_path/removed'")
+                    save_removed_models(args, sanity_batch=batch)
                     return
+
+
+def save_removed_models(args=None, sanity_batch=None):
+    """
+    Save removed models after sanity check on the batch
+    Sanity check: Pamaterized model -> removed model: loss should match
+    """
+    if args is None:
+        # when executing this method separately
+        args = parse_arguments()
+        pretrain_dataset_provider = PreTrainingDataset(args, logger=args.logger)
+        dataset_iterator, total_length = pretrain_dataset_provider.get_shard(0)
+        for batch_index_number, batch_index in enumerate(tqdm(dataset_iterator, smoothing=1)):
+            batch = pretrain_dataset_provider.get_batch(batch_index)
+            batch = tuple(t.to(device) for t in batch)  # Move to GPU
+            sanity_batch = batch
+            break
+    
+    saved_param_models = glob.glob(f"{args.saved_model_path}/*")
+    logging.info(f"Found {len(saved_param_models)} saved parameterized models")
+    for i, param_model_path in enumerate(saved_param_models):
+        logging.info(f"Processing {i+1}-th parameterized model...")
+        # define and load parameterized model
+        src_model_list = [BasePretrainModel(args) for _ in range(args.num_src_models)]
+        param_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
+        register_models(
+            tgt_model=param_model.network,
+            src_model_list=[src_model.network for src_model in src_model_list],
+            untie_weights=args.untie_weights,
+            avg_decoder=args.avg_decoder,
+            init_type=args.init_type,
+        )
+
+        logging.info(f"Loading parameterized target model from {param_model_path}")
+        param_checkpoint = torch.load(os.path.join(param_model_path, "pytorch_model.bin"))
+        param_model.network.load_state_dict(param_checkpoint)
+        param_model.network.to(device)
+        param_model.eval()
+        
+        with torch.no_grad():
+            param_model_loss = param_model.network(sanity_batch)[0].item()
+            param_model_size = count_parameters(param_model.network)
+        
+        # remove parameterization
+        logging.info("Removing parameterization")
+        remove_models(param_model.network)
+        param_model.network.to(device)
+        param_model.eval()
+        
+        with torch.no_grad():
+            removed_model_loss = param_model.network(sanity_batch)[0].item()
+            removed_model_size = count_parameters(param_model.network)
+            
+        # sanity check
+        logging.info(f"Parameterized model loss: {param_model_loss:.3f}, size: {param_model_size}")
+        logging.info(f"Removed model loss: {removed_model_loss:.3f}, size: {removed_model_size}")
+        assert param_model_loss == removed_model_loss, "Sanity check failed"
+        
+        # if sanity check passed, save removed model
+        logging.info(f"Sanity check passed, saving non-parameterized model to {param_model_path}/removed")
+        param_model.save_weights(
+            checkpoint_id="removed",
+            output_dir=param_model_path,
+            is_deepspeed=False,
+        )
 
 
 def sanity_2models_eyeinit():
@@ -348,10 +412,6 @@ def sanity_2models_eyeinit():
 def sanity_2models_remove():
     args = parse_arguments()
     
-    # # register ligo parameterization
-    # _, stitched_model = init_ligo(args)
-    # stitched_model.network.to(device)
-    
     src_model_list = [BasePretrainModel(args) for _ in range(args.num_src_models)]
     
     logging.info(f"Initializing parameterized model with {args.num_src_models} models...")
@@ -364,7 +424,7 @@ def sanity_2models_remove():
         init_type=args.init_type,
     )
 
-    param_model_path = "/home/wk247/saved_models/ligo-bert/2xhalflarge-hf-set23-100steps-nowarmup-bsz512-lr1e-5-eyeinit-notie-val20-base512-2e-4/set23-100steps-nowarmup-bsz512-lr1e-5-eyeinit-notie-val20-base512-2e-4/epoch1_step100"
+    param_model_path = "/home/azureuser/saved_models/ligo-bert-2steps/sqrtlarge-hf-finetune-100steps-nowarmup-bsz512-lr2e-5-eyeinit-notie-avg-avgoverlap-val20-base2e-4/finetune-100steps-nowarmup-bsz512-lr2e-5-eyeinit-notie-avg-avgoverlap-val20-base2e-4/epoch1_step100"
     logging.info(f"Loading parameterized target model from {param_model_path}")
     param_checkpoint = torch.load(os.path.join(param_model_path, "pytorch_model.bin"))
     param_model.network.load_state_dict(param_checkpoint)
@@ -383,7 +443,7 @@ def sanity_2models_remove():
         exit()
     
     logging.info("Loading removed target model")
-    removed_model = BasePretrainModel(args, model_type="stitched-bert-mlm")
+    removed_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
     removed_checkpoint = torch.load(os.path.join(param_model_path, "removed/pytorch_model.bin"))
     removed_model.network.load_state_dict(removed_checkpoint)
     removed_model.eval()
@@ -402,6 +462,11 @@ def sanity_2models_remove():
         token_type_ids = batch[3]  # (all 0): [32, 128]
         masked_lm_labels = batch[4]  # [32, 128]
         masked_token_indexes = torch.nonzero((masked_lm_labels + 1).view(-1), as_tuple=False).view(-1)
+        
+        print(f"param_model loss: {param_model.network(batch)[0].item()}")
+        print(f"removed_model loss: {removed_model.network(batch)[0].item()}")
+        
+        breakpoint()
         
         # check if param_model's decoder and word embeddings are tied
         word_weight_0 = param_model.network.bert.embeddings.word_embeddings.parametrizations.weight[0].src_weight_0.detach()  # [30528, 512]

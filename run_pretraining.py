@@ -563,11 +563,11 @@ def stitch_models(args):
 
     # checkpoint: OrderedDict with model params
     logger.info(f"Loading source model 1 from {args.src_model1_path}")
-    checkpoint1 = torch.load(args.src_model1_path + "pytorch_model.bin")
+    checkpoint1 = torch.load(os.path.join(args.src_model1_path, "pytorch_model.bin"))
     src_model1.network.load_state_dict(checkpoint1)
 
     logger.info(f"Loading source model 2 from {args.src_model2_path}")
-    checkpoint2 = torch.load(args.src_model2_path + "pytorch_model.bin")
+    checkpoint2 = torch.load(os.path.join(args.src_model2_path, "pytorch_model.bin"))
     src_model2.network.load_state_dict(checkpoint2)
        
     # stitch 4 models
@@ -577,11 +577,11 @@ def stitch_models(args):
 
         # checkpoint: OrderedDict with model params
         logger.info(f"Loading source model 3 from {args.src_model3_path}")
-        checkpoint3 = torch.load(args.src_model3_path + "pytorch_model.bin")
+        checkpoint3 = torch.load(os.path.join(args.src_model3_path, "pytorch_model.bin"))
         src_model3.network.load_state_dict(checkpoint3)
 
         logger.info(f"Loading source model 4 from {args.src_model4_path}")
-        checkpoint4 = torch.load(args.src_model4_path + "pytorch_model.bin")
+        checkpoint4 = torch.load(os.path.join(args.src_model4_path, "pytorch_model.bin"))
         src_model4.network.load_state_dict(checkpoint4)
 
     # # load the last checkpoint
@@ -597,7 +597,8 @@ def stitch_models(args):
         stitch(src_model1.network,
                src_model2.network,
                stitched_model.network,
-               skip_layernorm_flg=args.skip_layernorm,
+               skip_layernorm_=args.skip_layernorm,
+               avg_decoder_=args.avg_decoder,
                extra_src_list=[src_model3.network, src_model4.network])
         del src_model1, src_model2, src_model3, src_model4
 
@@ -608,7 +609,8 @@ def stitch_models(args):
             src_model1.network,
             src_model2.network,
             stitched_model.network,
-            skip_layernorm_flg=args.skip_layernorm,
+            skip_layernorm_=args.skip_layernorm,
+            avg_decoder_=args.avg_decoder,
             extra_src_list=[],
         )
         del src_model1, src_model2

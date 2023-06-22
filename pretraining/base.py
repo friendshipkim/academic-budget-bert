@@ -84,6 +84,9 @@ class BasePretrainModel(object):
             if model_name_or_path is None:
                 logger.info("Loading config from args")
                 
+                # tied embeddings - decoder
+                args.model_config["tie_decoder"] = not args.avg_decoder
+                
                 # stitched - diagonal model
                 if model_type == "stitched-bert-mlm":
                     args.model_config["modularize"] = args.modularize

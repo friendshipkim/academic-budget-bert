@@ -67,6 +67,7 @@ class PretrainedBertConfig(BertConfig):
         self.layernorm_embedding = layernorm_embedding
         self.is_stitched = False
         self.hf_architecture = kwargs.get("hf_architecture", False)
+        self.tie_decoder = kwargs.get("tie_decoder", True)
 
 
 class StitchedPretrainedBertConfig(PretrainedBertConfig):

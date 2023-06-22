@@ -618,12 +618,12 @@ def stitch_models(args):
 
 def load_finetuned_model(args):
     # if non-parameterized model exists
-    if os.path.exists(args.finetuned_model_path + "removed/"):
+    if os.path.exists(os.path.join(args.finetuned_model_path, "removed/")):
         logger.info(f"Loading parameterized target model from {args.finetuned_model_path}")
-        stitched_model = BasePretrainModel(args, model_type="stitched-bert-mlm")
-        stitched_checkpoint = torch.load(args.finetuned_model_path + "removed/pytorch_model.bin")
+        stitched_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
+        stitched_checkpoint = torch.load(os.path.join(args.finetuned_model_path, "removed/pytorch_model.bin"))
         stitched_model.network.load_state_dict(stitched_checkpoint)
-
+        
         return stitched_model
     
     else:
@@ -631,25 +631,22 @@ def load_finetuned_model(args):
         src_model_list = [BasePretrainModel(args) for _ in range(args.num_src_models)]
         
         # stitched model skeleton
-        logger.info(f"Initializing ligo model with {args.num_src_models} models...")
+        logging.info(f"Initializing parameterized model with {args.num_src_models} models...")
         stitched_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
         register_models(
             tgt_model=stitched_model.network,
             src_model_list=[src_model.network for src_model in src_model_list],
             untie_weights=args.untie_weights,
             avg_decoder=args.avg_decoder,
+            init_type=args.init_type,
         )
 
         logger.info(f"Loading parameterized target model from {args.finetuned_model_path}")
-        stitched_checkpoint = torch.load(args.finetuned_model_path + "pytorch_model.bin")
+        stitched_checkpoint = torch.load(os.path.join(args.finetuned_model_path, "pytorch_model.bin"))
         stitched_model.network.load_state_dict(stitched_checkpoint)
-        
-        breakpoint()
         
         logger.info("Removing parameterization")
         remove_models(stitched_model.network)
-        
-        breakpoint()
 
         logger.info(f"Saving non-parameterized model to {args.finetuned_model_path}/removed")
         stitched_model.save_weights(
@@ -667,9 +664,11 @@ def check_if_early_stop(eval_loss, scale_counter, args, global_step):
     logger.info(f"Global step: {global_step}, early stop steps: {args.early_stop_steps}")
     if global_step >= args.early_stop_steps:
         return True
-    else:
-        return False
+    
+    if eval_loss <= args.early_stop_eval_loss:
+        return True
 
+    return False
     # enable only step early stopping for now
     # # check if the validation loss is already NaN and stop
     # if eval_loss is not None and np.isnan(eval_loss):

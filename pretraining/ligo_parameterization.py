@@ -6,6 +6,7 @@ import torch.nn.utils.parametrize as parametrize
 from typing import List, Type
 from torch import nn
 from torch.nn import Parameter, ParameterList
+from sklearn.decomposition import PCA
 
 
 # ====================================
@@ -13,15 +14,43 @@ from torch.nn import Parameter, ParameterList
 # ====================================
 
 
-def init_eye(params: Type[ParameterList]):                       
-    # p: d2_dim x d1_dim
-    assert len(params) == 2
-    # first ligo: [I, 0]
-    params[0] = nn.init.eye_(params[0])
-    # second ligo: [0, I]
-    d2_dim, d1_dim = params[1].shape
-    # params[1] = Parameter(torch.flip(nn.init.eye_(params[1]).view(2, d1_dim, d1_dim), dims=[0]).view(d2_dim, d1_dim), requires_grad=True)
-    params[1] = Parameter(torch.concat([torch.zeros(d2_dim - d1_dim, d1_dim), torch.eye(d1_dim)], dim=0), requires_grad=True)
+def init_eye(params: Type[ParameterList]):
+    if len(params) == 1:
+        nn.init.eye_(params[0]) 
+    elif len(params) == 2:          
+        # p: d2_dim x d1_dim
+        d2_dim, d1_dim = params[0].shape
+        
+        # # 1. overlap
+        # disjoint_span = d2_dim - d1_dim
+        
+        # # first ligo: [I, 0] or [I, 1/2, 0]
+        # param_0 = torch.eye(d2_dim, d1_dim)
+        # param_0[disjoint_span:d1_dim, :] = param_0[disjoint_span:d1_dim, :] / 2
+        # params[0] = Parameter(param_0, requires_grad=True)
+
+        # # second ligo: [0, I] or [0, 1/2, I]
+        # param_1 = torch.concat([torch.zeros(d2_dim - d1_dim, d1_dim), torch.eye(d1_dim)], dim=0)
+        # param_1[-d1_dim:-disjoint_span, :] = param_1[-d1_dim:-disjoint_span, :] / 2
+        # params[1] = Parameter(param_1, requires_grad=True)
+        
+        # # params[1] = Parameter(torch.flip(nn.init.eye_(params[1]).view(2, d1_dim, d1_dim), dims=[0]).view(d2_dim, d1_dim), requires_grad=True)
+
+        # 2. full A, part of B
+        # first ligo: [I (full), 0]
+        nn.init.eye_(params[0]) 
+        
+        # second ligo: [0, I (part)]
+        keep_last_b_span = d2_dim - d1_dim
+        diag_rows = d2_dim - torch.arange(keep_last_b_span) - 1
+        diag_cols = d1_dim - torch.arange(keep_last_b_span) - 1
+        
+        param_1 = torch.zeros(d2_dim, d1_dim)
+        param_1[diag_rows, diag_cols] = torch.ones(keep_last_b_span)
+        params[1] = Parameter(param_1, requires_grad=True)
+    
+    else:
+        raise NotImplementedError
 
 
 def init_normal(params: Type[ParameterList]):
@@ -32,10 +61,53 @@ def init_normal(params: Type[ParameterList]):
 def init_kaiming(params: Type[ParameterList]):
     for p in params:
         nn.init.kaiming_uniform_(p, a=math.sqrt(5))
-        
 
-def init_net2net(params: Type[ParameterList]):
-    # TODO: implement net2net initialization
+
+def init_net2net_a(params: Type[ParameterList], previous_ligo_b: Type[ParameterList]):
+    # TODO: implement stitching
+    assert len(params) == 1
+    assert params[0].shape == previous_ligo_b[0].shape
+    
+    d2_in_dim, d1_in_dim = params[0].shape
+    in_expand = previous_ligo_b[0].detach()
+    
+    # frequency of each row copied
+    D = 1 / in_expand.sum(-1)  # CHECK: normalization?
+    in_expand = torch.diag(D) @ in_expand
+    params[0] = Parameter(in_expand, requires_grad=True)
+
+
+def init_net2net_b(params: Type[ParameterList]):
+    # TODO: implement stitching
+    assert len(params) == 1
+    d2_out_dim, d1_out_dim = params[0].shape
+    out_expand = torch.concat((torch.eye(d1_out_dim), torch.eye(d1_out_dim)[torch.randint(d1_out_dim, (d2_out_dim - d1_out_dim,))].T), dim=-1)
+    params[0] = Parameter(out_expand, requires_grad=True)
+
+
+def init_pca_a(params: Type[ParameterList], previous_ligo_b: Type[ParameterList]):
+    # TODO: implement input expansion PCA initialization
+    return
+
+
+def init_pca_b(params: Type[ParameterList], src_weights: Type[List[torch.Tensor]]):
+    # TODO: implement output expansion PCA initialization
+    assert len(params) == 2
+    A, B = src_weights
+    
+    # dimensions
+    d_out_dim, d_in_dim = A.shape
+    d2_out_dim, d1_out_dim = params[0].shape
+    zeros = torch.zeros(d_out_dim, d_in_dim)
+    AB_diag = torch.concat((torch.concat((A, zeros), dim=0), torch.concat((zeros, B), dim=0)), dim=-1)
+    
+    # PCA on ((A, 0), (0, B))
+    pca = PCA(n_components=d2_out_dim)
+    U, S, V = pca._fit(AB_diag)
+    
+    U_fit = torch.from_numpy(U[:, :d2_out_dim])
+    S_fit = torch.from_numpy(S[:d2_out_dim])
+    V_fit = torch.from_numpy(V[:d2_out_dim, :])
     return
 
         
@@ -43,7 +115,10 @@ init_func_dict = {
     'eye': init_eye,
     'normal': init_normal,
     'kaiming': init_kaiming,
-    'net2net': init_net2net,
+    'net2net_a': init_net2net_a,
+    'net2net_b': init_net2net_b,
+    'pca_a': init_pca_a,
+    'pca_b': init_pca_b,
 }
 
 init_type = None

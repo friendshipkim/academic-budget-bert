@@ -241,7 +241,7 @@ def register_mlm_head(
     register_linear(
         tgt_linear=tgt_mlm_head.predictions.decoder,
         src_linear_list=[src_mlm_head.predictions.decoder for src_mlm_head in src_mlm_head_list],
-        tie_a=b_emb,
+        tie_a=None if avg_decoder else b_emb,
         tie_b=None,
         bias=tgt_mlm_head.predictions.decoder.bias is not None,
         is_decoder=True,

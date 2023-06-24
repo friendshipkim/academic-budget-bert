@@ -1,4 +1,4 @@
-export WANDB_MODE=online
+export WANDB_MODE=disabled
 export CUDA_VISIBLE_DEVICES=0
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 python finetune_ligo.py \
@@ -27,22 +27,22 @@ python finetune_ligo.py \
   --max_steps 100 \
   --num_warmup_steps 0 \
   --warmup_proportion 0.00 \
-  --dataset_path /home/wk247/data/enwiki_books_128_20_ver3/finetune_40/ \
-  --output_dir /home/wk247/saved_models/ligo-bert-2steps/ \
+  --dataset_path ~/data/enwiki_books_128_20_ver3/finetune_40/ \
+  --output_dir ~/saved_models/ligo-bert-2steps/ \
   --job_name sqrtlarge-hf \
-  --current_run_id finetune-100steps-nowarmup-bsz512-lr2e-5-eyeinit-untie-noavg-val20-base1e-4 \
+  --current_run_id finetune-100steps-nowarmup-bsz512-lr2e-5-eyeinit-notie-avg-fullA-val20-base1e-4 \
   --project_name ligo-finetuning \
   --seed 33 \
   --fp16 \
   --do_stitch \
   --hf_architecture \
   --do_validation \
-  --validation_micro_batch 64 \
+  --validation_micro_batch 128 \
   --validation_shards 3 \
   --num_steps_between_checkpoints 20 \
   --num_src_models 2 \
-  --src_model1_path /home/wk247/saved_models/pretrain-2steps/halflarge-hf-set0-bsz512-200ksteps-5kwarmup-5val-lr1e-4-50ksave/set0-bsz512-200ksteps-5kwarmup-5val-lr1e-4-50ksave/epoch167_step50267 \
-  --src_model2_path /home/wk247/saved_models/pretrain-2steps/halflarge-hf-set1-bsz512-200ksteps-5kwarmup-5val-lr1e-4-50ksave/set1-bsz512-200ksteps-5kwarmup-5val-lr1e-4-50ksave/epoch167_step50267 \
+  --src_model1_path ~/saved_models/pretrain-2steps/halflarge-hf-set0-bsz512-200ksteps-5kwarmup-5val-lr1e-4-50ksave/epoch167_step50267 \
+  --src_model2_path ~/saved_models/pretrain-2steps/halflarge-hf-set1-bsz512-200ksteps-5kwarmup-5val-lr1e-4-50ksave/epoch167_step50267 \
   --untie_weights True \
-  --avg_decoder False \
+  --avg_decoder True \
   --init_type eye

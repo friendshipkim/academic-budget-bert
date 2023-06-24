@@ -1,19 +1,21 @@
 export WANDB_MODE=online
-export CUDA_VISIBLE_DEVICES=1
+export CUDA_VISIBLE_DEVICES=2
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 python finetune_ligo.py \
   --model_type bert-mlm --tokenizer_name bert-large-uncased \
   --hidden_act gelu \
   --hidden_size 512 \
+  --target_hidden_size 768 \
   --num_hidden_layers 24 \
   --num_attention_heads 8 \
+  --target_num_attention_heads 12 \
   --intermediate_size 2048 \
   --hidden_dropout_prob 0.1 \
   --attention_probs_dropout_prob 0.1 \
-  --encoder_ln_mode pre-ln \
-  --lr 5e-5 \
-  --train_batch_size 256 \
-  --train_micro_batch_size_per_gpu 16 \
+  --encoder_ln_mode post-ln \
+  --lr 2e-5 \
+  --train_batch_size 512 \
+  --train_micro_batch_size_per_gpu 256 \
   --lr_schedule step \
   --curve linear \
   --gradient_clipping 0.0 \
@@ -23,17 +25,23 @@ python finetune_ligo.py \
   --adam_beta2 0.98 \
   --adam_eps 1e-6 \
   --max_steps 100 \
-  --num_warmup_steps 6 \
-  --warmup_proportion 0.06 \
-  --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20_ver2/set23/ \
-  --output_dir /n/tata_ddos_ceph/woojeong/saved_models/ligo-bert/ \
-  --job_name 1xhalflarge-hf \
-  --current_run_id set23-100steps-warmup6-bsz256-lr5e-5-noval-init0.001-notie \
+  --num_warmup_steps 0 \
+  --warmup_proportion 0.0 \
+  --dataset_path ~/data/enwiki_books_128_20_ver3/finetune_40/ \
+  --output_dir ~/saved_models/ligo-bert-2steps/ \
+  --job_name sqrtlarge-hf-1src \
+  --current_run_id finetune-100steps-nowarmup-bsz512-lr2e-5-eyeinit-notie-noavg-val20-base1e-4 \
   --project_name ligo-finetuning \
   --seed 33 \
   --fp16 \
-  --load_tokenizer_locally \
   --do_stitch \
   --hf_architecture \
+  --do_validation \
+  --validation_micro_batch 128 \
+  --validation_shards 3 \
+  --num_steps_between_checkpoints 20 \
   --num_src_models 1 \
-  --src_model1_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-set0-disjoint-bsz256-160ksteps-5val/set0-disjoint-bsz256-160ksteps-5val/epoch1000000000_step160398/
+  --src_model1_path ~/saved_models/pretrain-2steps/halflarge-hf-set0-bsz512-200ksteps-5kwarmup-5val-lr1e-4-50ksave/epoch167_step50267 \
+  --untie_weights True \
+  --avg_decoder False \
+  --init_type eye

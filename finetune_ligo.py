@@ -9,7 +9,7 @@ from tqdm import tqdm
 from pretraining.base import BasePretrainModel
 from pretraining.utils import count_parameters, count_parameterized_parameters
 from pretraining.schedules import get_scheduler
-from pretraining.ligo_register_utils import register_models, check_tied_weights
+from pretraining.ligo_register_utils import register_models, check_tied_weights, check_inherit
 from pretraining.ligo_remove_utils import remove_models
 from pretraining.dataset.pretraining_dataset import (
     PreTrainingDataset,
@@ -59,7 +59,7 @@ def init_ligo(args):
     )
     
     # # check if weights are tied properly
-    # check_tied_weights(ligo_stitched_model.network)
+    check_tied_weights(ligo_stitched_model.network)
     
     # # delete source models
     # del src_model_list
@@ -517,6 +517,34 @@ def sanity_2models_remove():
         exit()
 
 
+def sanity_inherit():
+    args = parse_arguments()
+    
+    # Load two pre-training model skeletons + supplied model config
+    src_model_list = []
+    for src_index in range(1, args.num_src_models + 1):
+        src_model_path = eval(f"args.src_model{src_index}_path")
+        logging.info(f"Loading source model {src_index} from {src_model_path}")
+        src_model = BasePretrainModel(args)
+        # checkpoint: OrderedDict with model params
+        checkpoint = torch.load(os.path.join(src_model_path, "pytorch_model.bin"))
+        src_model.network.load_state_dict(checkpoint)
+        src_model_list.append(src_model)
+    
+    # stitched model skeleton
+    logging.info(f"Initializing ligo model with {args.num_src_models} models...")
+    logging.info(f"Tie weights: {not args.untie_weights}, Avg decoder: {args.avg_decoder}, Init_type: {args.init_type}")
+    ligo_stitched_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
+    
+    check_inherit(
+        tgt_model=ligo_stitched_model.network,
+        src_model_list=[src_model.network for src_model in src_model_list],
+        untie_weights=args.untie_weights,
+        avg_decoder=args.avg_decoder,
+        init_type=args.init_type,
+    )
+
 if __name__ == "__main__":
     main()
     # sanity_2models_remove()
+    # save_removed_models()

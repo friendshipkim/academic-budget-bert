@@ -1,4 +1,4 @@
-export WANDB_MODE=disabled
+export WANDB_MODE=online
 export CUDA_VISIBLE_DEVICES=2
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 python finetune_ligo.py \
@@ -30,7 +30,7 @@ python finetune_ligo.py \
   --dataset_path ~/data/enwiki_books_128_20_ver3/finetune_40/ \
   --output_dir ~/saved_models/ligo-bert-2steps/ \
   --job_name sqrtlarge-hf \
-  --current_run_id finetune-100steps-nowarmup-bsz512-lr2e-5-eyeinit-notie-avg-fullA-val20-base1e-4 \
+  --current_run_id finetune-100steps-nowarmup-bsz512-lr2e-5-pca-tie-noavg-val20-base1e-4 \
   --project_name ligo-finetuning \
   --seed 33 \
   --fp16 \
@@ -44,5 +44,5 @@ python finetune_ligo.py \
   --src_model1_path ~/saved_models/pretrain-2steps/halflarge-hf-set0-bsz512-200ksteps-5kwarmup-5val-lr1e-4-50ksave/epoch167_step50267 \
   --src_model2_path ~/saved_models/pretrain-2steps/halflarge-hf-set1-bsz512-200ksteps-5kwarmup-5val-lr1e-4-50ksave/epoch167_step50267 \
   --untie_weights False \
-  --avg_decoder True \
-  --init_type eye
+  --avg_decoder False \
+  --init_type pca

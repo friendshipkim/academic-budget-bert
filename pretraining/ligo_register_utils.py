@@ -15,6 +15,7 @@ from pretraining.modeling import (
 from pretraining.ligo_parameterization import (
     register_embedding,
     register_linear,
+    register_decoder_linear,
     register_ln,
     set_init_type,
 )
@@ -238,13 +239,11 @@ def register_mlm_head(
     # TODO: this should be similar to embedding, no bias (but bias exist in hf)
     # (decoder): Linear(in_features=1024, out_features=30528, bias=False)
     # TODO: what is cls.predictions.bias?
-    register_linear(
+    register_decoder_linear(
         tgt_linear=tgt_mlm_head.predictions.decoder,
         src_linear_list=[src_mlm_head.predictions.decoder for src_mlm_head in src_mlm_head_list],
         tie_a=b_emb,
-        tie_b=None,
         bias=tgt_mlm_head.predictions.decoder.bias is not None,
-        is_decoder=True,
         avg_decoder=avg_decoder,
     )
 

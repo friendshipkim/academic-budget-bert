@@ -302,48 +302,62 @@ def register_linear(
     tie_a: Type[ParameterList],
     tie_b: Type[ParameterList],
     bias: bool = True,
-    is_decoder: bool = False,
-    avg_decoder: bool = False,
 ):
-    # apply ligo to weight
-    if not is_decoder:
+    # if (tie_a is None) and (init_type in ['pca', 'net2net']):
+    #     assert init_a is not None, "tie_a or init_a should be given using pca or net2net"
+    #     assert len(init_a) == len(src_linear_list) == 2, f"init_a should have same length as src_module_list, but got {len(init_a)} and {len(src_linear_list)}"
+    
+    parametrize.register_parametrization(
+        tgt_linear,
+        "weight",
+        LigoLinearWeight(
+            in_dim=tgt_linear.in_features,
+            out_dim=tgt_linear.out_features,
+            src_module_list=src_linear_list,
+            tie_a=tie_a,
+            tie_b=tie_b,
+        ),
+    )
+    # bias ligo_b is tied to weight ligo_b
+    if bias:
         parametrize.register_parametrization(
             tgt_linear,
-            "weight",
-            LigoLinearWeight(
-                in_dim=tgt_linear.in_features,
+            "bias",
+            LigoLinearBias(
                 out_dim=tgt_linear.out_features,
                 src_module_list=src_linear_list,
-                tie_a=tie_a,
-                tie_b=tie_b,
+                tie_b=tgt_linear.parametrizations.weight[0].ligo_b,
             ),
         )
-        if bias:
-            parametrize.register_parametrization(
-                tgt_linear,
-                "bias",
-                LigoLinearBias(
-                    out_dim=tgt_linear.out_features,
-                    src_module_list=src_linear_list,
-                    tie_b=tgt_linear.parametrizations.weight[0].ligo_b,
-                ),
-            )
-    else:
-        # decoder only expands input dimension
-        # TODO: if decoder has bias (shape: (vocab_size,)), cannot apply ligo_a
-        # average two etc
-        parametrize.register_parametrization(
-            tgt_linear,
-            "weight",
-            LigoDecoderLinearWeight(
-                in_dim=tgt_linear.in_features,
-                src_module_list=src_linear_list,
-                tie_a=tie_a,
-                avg_decoder=avg_decoder,
-            ),
-        )
-        if bias:
-            raise NotImplementedError("Decoder bias is not implemented")
+
+
+def register_decoder_linear(
+    tgt_linear: Type[nn.Linear],
+    src_linear_list: List[Type[nn.Linear]],
+    tie_a: Type[ParameterList],
+    bias: bool = True,
+    avg_decoder: bool = False,
+):
+    # decoder only expands input dimension
+    # TODO: if decoder has bias (shape: (vocab_size,)), cannot apply ligo_a
+    # average two etc
+    
+    # if (tie_a is None) and (init_type in ['pca', 'net2net']):
+    #     assert init_a is not None, "tie_a or init_a should be given using pca or net2net"
+    #     assert len(init_a) == len(src_linear_list) == 2, f"init_a should have same length as src_module_list, but got {len(init_a)} and {len(src_linear_list)}"    
+    
+    parametrize.register_parametrization(
+        tgt_linear,
+        "weight",
+        LigoDecoderLinearWeight(
+            in_dim=tgt_linear.in_features,
+            src_module_list=src_linear_list,
+            tie_a=tie_a,
+            avg_decoder=avg_decoder,
+        ),
+    )
+    if bias:
+        raise NotImplementedError("Decoder bias is not implemented")
 
 
 def register_ln(

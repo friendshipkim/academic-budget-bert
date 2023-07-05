@@ -122,7 +122,7 @@ class LigoEmbedding(nn.Module):
         outputs = []
         for i in range(self.num_src_models):
             # matrix multiplication
-            outputs.append(torch.mm(self.params[i], self.ligo_b[i].T))
+            outputs.append(torch.mm(getattr(self, f"src_weight_{i}"), self.ligo_b[i].T))
 
         return torch.stack(outputs, dim=0).sum(0)
 
@@ -162,7 +162,7 @@ class LigoDecoderLinearWeight(nn.Module):
         outputs = []
         for i in range(self.num_src_models):
             # W A^T
-            WA = torch.mm(self.params[i], self.ligo_a[i].T)
+            WA = torch.mm(getattr(self, f"src_weight_{i}"), self.ligo_a[i].T)
             outputs.append(WA)
 
         return torch.stack(outputs, dim=0).sum(0)
@@ -212,7 +212,7 @@ class LigoLinearWeight(nn.Module):
         outputs = []
         for i in range(self.num_src_models):
             # B W A^T
-            BW = torch.mm(self.ligo_b[i], self.params[i])
+            BW = torch.mm(self.ligo_b[i], getattr(self, f"src_weight_{i}"))
             BWA = torch.mm(BW, self.ligo_a[i].T)
             outputs.append(BWA)
 
@@ -251,7 +251,7 @@ class LigoLinearBias(nn.Module):
         outputs = []
         for i in range(self.num_src_models):
             # matrix vector multiplication
-            outputs.append(torch.mv(self.ligo_b[i], self.params[i]))
+            outputs.append(torch.mv(self.ligo_b[i], getattr(self, f"src_bias_{i}")))
         return torch.stack(outputs, dim=0).sum(0)
 
 

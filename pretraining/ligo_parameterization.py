@@ -13,15 +13,41 @@ from torch.nn import Parameter, ParameterList
 # ====================================
 
 
-def init_eye(params: Type[ParameterList]):                       
-    # p: d2_dim x d1_dim
-    assert len(params) == 2
-    # first ligo: [I, 0]
-    params[0] = nn.init.eye_(params[0])
-    # second ligo: [0, I]
-    d2_dim, d1_dim = params[1].shape
-    # params[1] = Parameter(torch.flip(nn.init.eye_(params[1]).view(2, d1_dim, d1_dim), dims=[0]).view(d2_dim, d1_dim), requires_grad=True)
-    params[1] = Parameter(torch.concat([torch.zeros(d2_dim - d1_dim, d1_dim), torch.eye(d1_dim)], dim=0), requires_grad=True)
+def init_eye(params: Type[ParameterList]):
+    if len(params) == 1:
+        nn.init.eye_(params[0])
+    elif len(params) == 2:
+        # p: new_dim x dim
+        new_dim, dim = params[0].shape
+        
+        # 1. overlap
+        disjoint_span = new_dim - dim
+        
+        # first ligo: [I, 0] or [I, 1/2, 0]
+        param_0 = torch.eye(new_dim, dim)
+        param_0[disjoint_span:dim, :] = param_0[disjoint_span:dim, :] / 2
+        params[0] = Parameter(param_0, requires_grad=True)
+
+        # second ligo: [0, I] or [0, 1/2, I]
+        param_1 = torch.concat([torch.zeros(new_dim - dim, dim), torch.eye(dim)], dim=0)
+        param_1[-dim:-disjoint_span, :] = param_1[-dim:-disjoint_span, :] / 2
+        params[1] = Parameter(param_1, requires_grad=True)
+
+        # # 2. full A, part of B
+        # # first ligo: [I (full), 0]
+        # nn.init.eye_(params[0])
+        
+        # # second ligo: [0, I (part)]
+        # keep_last_b_span = new_dim - dim
+        # diag_rows = new_dim - torch.arange(keep_last_b_span) - 1
+        # diag_cols = dim - torch.arange(keep_last_b_span) - 1
+        
+        # param_1 = torch.zeros(new_dim, dim)
+        # param_1[diag_rows, diag_cols] = torch.ones(keep_last_b_span)
+        # params[1] = Parameter(param_1, requires_grad=True)
+    
+    else:
+        raise NotImplementedError
 
 
 def init_normal(params: Type[ParameterList]):

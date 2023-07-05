@@ -140,12 +140,20 @@ def register_layer(
 
     # Output ffn
     # ligo_a is tied to b_fc1, ligo_b is tied to b_emb
+    if hasattr(tgt_layer.intermediate.dense_act.parametrizations.weight[0], "e_inv_0"):
+        init_a = [hasattr(tgt_layer.intermediate.dense_act.parametrizations.weight[0], f"e_inv_{i}") for i in range(len(src_layer_list))]
+        tie_a = None
+    else:
+        init_a = None
+        tie_a = tgt_layer.intermediate.dense_act.parametrizations.weight[0].ligo_b if tie_flag else None
+    
     register_linear(
         tgt_linear=tgt_layer.output.dense,
         src_linear_list=[src_layer.output.dense for src_layer in src_layer_list],
-        tie_a=tgt_layer.intermediate.dense_act.parametrizations.weight[0].ligo_b if tie_flag else None,
+        tie_a=tie_a,
         tie_b=b_emb if tie_flag else None,
         bias=tgt_layer.output.dense.bias is not None,
+        init_a=init_a,
     )
 
     # copy both PreAttentionLayerNorm, PostAttentionLayerNorm
@@ -250,7 +258,7 @@ def register_mlm_head(
 
 def register_models(
     tgt_model: Type[BertLMHeadModel],
-    src_model_list: Type[BertLMHeadModel],
+    src_model_list: List[Type[BertLMHeadModel]],
     untie_weights: bool = False,
     avg_decoder: bool = False,
     init_type: str = None,

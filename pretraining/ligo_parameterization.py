@@ -6,6 +6,7 @@ import torch.nn.utils.parametrize as parametrize
 from typing import List, Type
 from torch import nn
 from torch.nn import Parameter, ParameterList
+from pretraining.pca_utils import expand_out_pca_diag, expand_out_pca_separately
 
 
 # ====================================
@@ -65,11 +66,89 @@ def init_net2net(params: Type[ParameterList]):
     return
 
         
+def init_net2net_a(params: Type[ParameterList], previous_ligo_b: Type[ParameterList]):
+    # TODO: implement stitching
+    assert len(params) == 1, f"net2net should have only one source model, but got {len(params)}"
+    assert params[0].shape == previous_ligo_b[0].shape
+    
+    new_in_dim, in_dim = params[0].shape
+    in_expand = previous_ligo_b[0].detach()
+    
+    # frequency of each row copied
+    D = 1 / in_expand.sum(-1)  # CHECK: normalization?
+    in_expand = torch.diag(D) @ in_expand
+    params[0] = Parameter(in_expand, requires_grad=True)
+
+
+def init_net2net_b(params: Type[ParameterList]):
+    # TODO: implement stitching
+    assert len(params) == 1, f"net2net should have only one source model, but got {len(params)}"
+    new_out_dim, out_dim = params[0].shape
+    out_expand = torch.concat((torch.eye(out_dim), torch.eye(out_dim)[torch.randint(out_dim, (new_out_dim - out_dim,))].T), dim=-1)
+    params[0] = Parameter(out_expand, requires_grad=True)
+
+
+def init_pca_a(params: Type[ParameterList], e_inv_list: Type[ParameterList]):
+    # inherit from the previous layer
+    # if previous layer was square, same as ligo_b, different otherwise
+    assert len(params) == len(e_inv_list) == 2, f"pca should have two source models, but got {len(params)}"
+    
+    # init params with e_invs + zeros
+    pad_param_list_from_pca_init(params, e_inv_list)
+
+
+def init_pca_b(params: Type[ParameterList], src_weights: List[Type[torch.Tensor]]):
+    assert len(params) == len(src_weights) == 2, f"pca should have two source models, but got {len(params)}"
+    
+    # dimensions
+    # param: [new_out_dim, out_dim]
+    # src_weight: [out_dim , in_dim]
+    assert params[0].shape[1] == src_weights[0].shape[0]
+    new_out_dim, out_dim = params[0].shape
+    
+    # PCA on each weight metrix
+    e_list, e_inv_list = expand_out_pca_separately(src_weights[0], src_weights[1], d_out_new=new_out_dim)
+    
+    # Transpose e_invs for future use
+    e_inv_list = [e_inv.T for e_inv in e_inv_list]
+    
+    # init params with es + zeros
+    pad_param_list_from_pca_init(params, e_list)
+    
+    return e_inv_list
+
+
+def pad_param_list_from_pca_init(params: Type[ParameterList], inits: List[Type[torch.Tensor]]):
+    assert len(params) == len(inits) == 2, f"pca should have two source models, but got {len(params)}"
+    
+    # dimensions
+    # param: [new_dim, dim]
+    # init: [new_dim // 2, dim]
+    assert params[0].shape[0] == inits[0].shape[0] * 2
+    assert params[0].shape[1] == inits[0].shape[1]
+    new_dim, dim = params[0].shape
+    
+    # first ligo: [PCA, 0]
+    nn.init.zeros_(params[0])
+    params[0].data[:new_dim // 2, :] = inits[0].data[:]
+    # param_0 = torch.concat((inits[0], torch.zeros(new_dim // 2, odimut_dim)), dim=0)
+    # params[0] = Parameter(param_0, requires_grad=True)
+    
+    # second ligo: [0, PCA]
+    nn.init.zeros_(params[1])
+    params[1].data[-new_dim // 2:, :] = inits[1].data[:]
+    # param_1 = torch.concat((torch.zeros(new_dim // 2, dim), inits[1]), dim=0)
+    # params[1] = Parameter(param_1, requires_grad=True)
+
+        
 init_func_dict = {
     'eye': init_eye,
     'normal': init_normal,
     'kaiming': init_kaiming,
-    'net2net': init_net2net,
+    'net2net_a': init_net2net_a,
+    'net2net_b': init_net2net_b,
+    'pca_a': init_pca_a,
+    'pca_b': init_pca_b,
 }
 
 init_type = None
@@ -105,7 +184,24 @@ class LigoEmbedding(nn.Module):
                     for _ in range(self.num_src_models)
                 ]
             )
-            init_func_dict[init_type](self.ligo_b)
+            # init ligo_b depending on init_type
+            # if init_type is pca or net2net, e_inv should be returned and registered
+            if init_type == 'pca':
+                e_inv_list = init_func_dict['pca_b'](
+                    self.ligo_b,
+                    # NOTE: embedding weights should be transposed for pca
+                    src_weights=[src_module_list[i].weight.detach().T for i in range(self.num_src_models)]
+                )
+                for i, t in enumerate(e_inv_list):
+                    self.register_buffer(f"e_inv_{i}", t)
+            elif init_type == 'net2net':
+                e_inv_list = init_func_dict['net2net_b'](self.ligo_b)
+                for i, t in enumerate(e_inv_list):
+                    self.register_buffer(f"e_inv_{i}", t)
+            else:
+                init_func_dict[init_type](self.ligo_b)
+        
+        # tie ligo_b to given parameter
         else:
             self.ligo_b = tie_b
 
@@ -116,19 +212,21 @@ class LigoEmbedding(nn.Module):
 
     @property
     def params(self):
-        return [getattr(self, f"src_weight_{i}") for i in range(self.num_src_models)]
+        params = [getattr(self, f"src_weight_{i}") for i in range(self.num_src_models)]
+        if init_type in ['pca', 'net2net']:
+            params += [getattr(self, f"e_inv_{i}") for i in range(self.num_src_models)]
+        return params
 
     def forward(self, X):
         outputs = []
         for i in range(self.num_src_models):
-            # matrix multiplication
             outputs.append(torch.mm(getattr(self, f"src_weight_{i}"), self.ligo_b[i].T))
 
         return torch.stack(outputs, dim=0).sum(0)
 
 
 class LigoDecoderLinearWeight(nn.Module):
-    def __init__(self, in_dim, src_module_list, tie_a=None, avg_decoder=False):
+    def __init__(self, in_dim, src_module_list, tie_a=None, init_a=None, avg_decoder=False):
         super().__init__()
         self.num_src_models = len(src_module_list)
         src_in_dim = src_module_list[0].in_features
@@ -142,7 +240,15 @@ class LigoDecoderLinearWeight(nn.Module):
                     for _ in range(self.num_src_models)
                 ]
             )
-            init_func_dict[init_type](self.ligo_a)
+            # init ligo_a depending on init_type
+            # if init_type is pca or net2net, e_inv should be given
+            if init_type == 'pca':
+                init_func_dict['pca_a'](self.ligo_a, init_a)
+            elif init_type == 'net2net':
+                init_func_dict['net2net_a'](self.ligo_a)
+            else:
+                init_func_dict[init_type](self.ligo_a)
+        
         else:
             self.ligo_a = tie_a
 
@@ -169,14 +275,16 @@ class LigoDecoderLinearWeight(nn.Module):
 
 
 class LigoLinearWeight(nn.Module):
-    def __init__(self, in_dim, out_dim, src_module_list, tie_a=None, tie_b=None):
+    def __init__(self, in_dim, out_dim, src_module_list, tie_a=None, tie_b=None, init_a=None):
         super().__init__()
         self.num_src_models = len(src_module_list)
         src_in_dim = src_module_list[0].in_features
         src_out_dim = src_module_list[0].out_features
 
-        # init or tie ligo operators
-        # b: d2_out x d1_out, a: d2_in x d1_in
+        # register e_inv if tie_b is not given
+        self.register_flag = tie_b is None
+
+        # init or tie ligo_b: [d2_out x d1_out]
         if tie_b is None:
             self.ligo_b = nn.ParameterList(
                 [
@@ -184,10 +292,26 @@ class LigoLinearWeight(nn.Module):
                     for _ in range(self.num_src_models)
                 ]
             )
-            init_func_dict[init_type](self.ligo_b)
+            
+            # init ligo_b depending on init_type
+            # if init_type is pca or net2net, e_inv should be returned and registered
+            if init_type == 'pca':
+                e_inv_list = init_func_dict['pca_b'](
+                    self.ligo_b,
+                    src_weights=[src_module_list[i].weight.detach() for i in range(self.num_src_models)]
+                )
+                for i, t in enumerate(e_inv_list):
+                    self.register_buffer(f"e_inv_{i}", t)
+            elif init_type == 'net2net':
+                e_inv_list = init_func_dict['net2net_b'](self.ligo_b)
+                for i, t in enumerate(e_inv_list):
+                    self.register_buffer(f"e_inv_{i}", t)
+            else:
+                init_func_dict[init_type](self.ligo_b)
         else:
             self.ligo_b = tie_b
 
+        # init or tie ligo_a: [d2_in x d1_in]
         if tie_a is None:
             self.ligo_a = nn.ParameterList(
                 [
@@ -195,7 +319,15 @@ class LigoLinearWeight(nn.Module):
                     for _ in range(self.num_src_models)
                 ]
             )
-            init_func_dict[init_type](self.ligo_a)
+            
+            # init ligo_a depending on init_type
+            # if init_type is pca or net2net, e_inv should be given
+            if init_type == 'pca':
+                init_func_dict['pca_a'](self.ligo_a, init_a)
+            elif init_type == 'net2net':
+                init_func_dict['net2net_a'](self.ligo_a)
+            else:
+                init_func_dict[init_type](self.ligo_a)
         else:
             self.ligo_a = tie_a
 
@@ -206,7 +338,10 @@ class LigoLinearWeight(nn.Module):
 
     @property
     def params(self):
-        return [getattr(self, f"src_weight_{i}") for i in range(self.num_src_models)]
+        params = [getattr(self, f"src_weight_{i}") for i in range(self.num_src_models)]
+        if self.register_flag and (init_type in ['pca', 'net2net']):
+            params += [getattr(self, f"e_inv_{i}") for i in range(self.num_src_models)]
+        return params
 
     def forward(self, X):
         outputs = []
@@ -220,7 +355,7 @@ class LigoLinearWeight(nn.Module):
 
 
 class LigoLinearBias(nn.Module):
-    def __init__(self, out_dim, src_module_list, tie_b=None):
+    def __init__(self, out_dim, src_module_list, tie_b=None, init_b=None):
         super().__init__()
         self.num_src_models = len(src_module_list)
         src_out_dim = src_module_list[0].out_features
@@ -229,19 +364,30 @@ class LigoLinearBias(nn.Module):
         for i, p in enumerate(src_bias):
             self.register_buffer(f"src_bias_{i}", p)
 
-        # NOTE: ligo_b is not registered under parametrizations.bias
-        # tie_b should be given at initialization
-        # self.ligo_b = tie_b
-        if tie_b is None:
-            self.ligo_b = nn.ParameterList(
-                [
-                    copy.deepcopy(Parameter(torch.Tensor(out_dim, src_out_dim), requires_grad=True))
-                    for _ in range(self.num_src_models)
-                ]
-            )
-            init_func_dict[init_type](self.ligo_b)
-        else:
-            self.ligo_b = tie_b
+        # # NOTE: ligo_b is not registered under parametrizations.bias
+        # # tie_b should be given at initialization
+        # # self.ligo_b = tie_b
+        # if tie_b is None:
+        #     self.ligo_b = nn.ParameterList(
+        #         [
+        #             copy.deepcopy(Parameter(torch.Tensor(out_dim, src_out_dim), requires_grad=True))
+        #             for _ in range(self.num_src_models)
+        #         ]
+        #     )
+        #     # init ligo_b depending on init_type
+        #     if init_type == 'pca':
+        #         pad_param_list_from_pca_init(self.ligo_b, init_b)
+        #     elif init_type == 'net2net':
+        #         # init_b should be given and ligo_b.shape == init_b.shape
+        #         for ligo_b, init_b_ in zip(self.ligo_b, init_b):
+        #             ligo_b.data[:] = init_b_.data[:]
+        #     else:
+        #         init_func_dict[init_type](self.ligo_b)
+        # else:
+        #     self.ligo_b = tie_b
+            
+        assert tie_b is not None, "tie_b should be given at initialization"
+        self.ligo_b = tie_b
 
     @property
     def params(self):
@@ -256,34 +402,46 @@ class LigoLinearBias(nn.Module):
 
 
 class LigoLN(nn.Module):
-    def __init__(self, out_dim, src_module_list, tie_b, is_weight):
+    def __init__(self, out_dim, src_module_list, tie_b, is_weight, init_b=None):
         super().__init__()
         self.num_src_models = len(src_module_list)
         src_out_dim = src_module_list[0].weight.size(0)
 
         self.is_weight = is_weight
-
-        if self.is_weight:
+        
+        if is_weight:
             src_weight = [src_module_list[i].weight.detach() for i in range(self.num_src_models)]
             for i, p in enumerate(src_weight):
                 self.register_buffer(f"src_weight_{i}", p)
+            
+            if tie_b is None:
+                self.ligo_b = nn.ParameterList(
+                    [
+                        copy.deepcopy(Parameter(torch.Tensor(out_dim, src_out_dim), requires_grad=True))
+                        for _ in range(self.num_src_models)
+                    ]
+                )
+                
+                # init ligo_b depending on init_type
+                if init_type == 'pca':
+                    pad_param_list_from_pca_init(self.ligo_b, init_b)
+                elif init_type == 'net2net':
+                    # init_b should be given and ligo_b.shape == init_b.shape
+                    for ligo_b, init_b_ in zip(self.ligo_b, init_b):
+                        ligo_b.data[:] = init_b_.data[:]
+                else:
+                    init_func_dict[init_type](self.ligo_b)
+            else:
+                self.ligo_b = tie_b
+        
+        # if bias, tie_b should be given
+        # NOTE: ligo_b is not registered under parametrizations.bias if tied
         else:
             src_bias = [src_module_list[i].bias.detach() for i in range(self.num_src_models)]
             for i, p in enumerate(src_bias):
                 self.register_buffer(f"src_bias_{i}", p)
-
-        # NOTE: ligo_b is not registered under parametrizations.bias
-        # tie_b should be given at initialization
-        # self.ligo_b = tie_b
-        if tie_b is None:
-            self.ligo_b = nn.ParameterList(
-                [
-                    copy.deepcopy(Parameter(torch.Tensor(out_dim, src_out_dim), requires_grad=True))
-                    for _ in range(self.num_src_models)
-                ]
-            )
-            init_func_dict[init_type](self.ligo_b)
-        else:
+            
+            assert tie_b is not None, "tie_b should be given at initialization"
             self.ligo_b = tie_b
 
     @property
@@ -328,10 +486,11 @@ def register_linear(
     tie_a: Type[ParameterList],
     tie_b: Type[ParameterList],
     bias: bool = True,
+    init_a: List[Type[torch.Tensor]] = None,
 ):
-    # if (tie_a is None) and (init_type in ['pca', 'net2net']):
-    #     assert init_a is not None, "tie_a or init_a should be given using pca or net2net"
-    #     assert len(init_a) == len(src_linear_list) == 2, f"init_a should have same length as src_module_list, but got {len(init_a)} and {len(src_linear_list)}"
+    if (tie_a is None) and (init_type in ['pca', 'net2net']):
+        assert init_a is not None, "tie_a or init_a should be given using pca or net2net"
+        assert len(init_a) == len(src_linear_list) == 2, f"init_a should have same length as src_module_list, but got {len(init_a)} and {len(src_linear_list)}"
     
     parametrize.register_parametrization(
         tgt_linear,
@@ -342,6 +501,7 @@ def register_linear(
             src_module_list=src_linear_list,
             tie_a=tie_a,
             tie_b=tie_b,
+            init_a=init_a,
         ),
     )
     # bias ligo_b is tied to weight ligo_b
@@ -353,6 +513,7 @@ def register_linear(
                 out_dim=tgt_linear.out_features,
                 src_module_list=src_linear_list,
                 tie_b=tgt_linear.parametrizations.weight[0].ligo_b,
+                init_b=None,  # not used for now
             ),
         )
 
@@ -361,6 +522,7 @@ def register_decoder_linear(
     tgt_linear: Type[nn.Linear],
     src_linear_list: List[Type[nn.Linear]],
     tie_a: Type[ParameterList],
+    init_a: List[Type[torch.Tensor]] = None,
     bias: bool = True,
     avg_decoder: bool = False,
 ):
@@ -368,9 +530,9 @@ def register_decoder_linear(
     # TODO: if decoder has bias (shape: (vocab_size,)), cannot apply ligo_a
     # average two etc
     
-    # if (tie_a is None) and (init_type in ['pca', 'net2net']):
-    #     assert init_a is not None, "tie_a or init_a should be given using pca or net2net"
-    #     assert len(init_a) == len(src_linear_list) == 2, f"init_a should have same length as src_module_list, but got {len(init_a)} and {len(src_linear_list)}"    
+    if (tie_a is None) and (init_type in ['pca', 'net2net']):
+        assert init_a is not None, "tie_a or init_a should be given using pca or net2net"
+        assert len(init_a) == len(src_linear_list) == 2, f"init_a should have same length as src_module_list, but got {len(init_a)} and {len(src_linear_list)}"    
     
     parametrize.register_parametrization(
         tgt_linear,
@@ -379,6 +541,7 @@ def register_decoder_linear(
             in_dim=tgt_linear.in_features,
             src_module_list=src_linear_list,
             tie_a=tie_a,
+            init_a=init_a,
             avg_decoder=avg_decoder,
         ),
     )
@@ -391,7 +554,13 @@ def register_ln(
     src_ln_list: List[Type[nn.LayerNorm]],
     tie_b: Type[ParameterList],
     bias: bool = True,
+    init_b: List[Type[torch.Tensor]] = None,
 ):
+    if (tie_b is None) and (init_type in ['pca', 'net2net']):
+        assert init_b is not None, "tie_b or init_b should be given using pca or net2net"
+        assert len(init_b) == len(src_ln_list) == 2, f"init_b should have same length as src_module_list, but got {len(init_b)} and {len(src_ln_list)}"
+            
+    # Layernorm weight, bias is both 1D tensor
     # register weight
     parametrize.register_parametrization(
         tgt_ln,
@@ -401,10 +570,12 @@ def register_ln(
             src_module_list=src_ln_list,
             tie_b=tie_b,
             is_weight=True,
+            init_b=init_b,
         ),
     )
 
     # if bias exists, register it
+    # bias ligo_b is tied to weight ligo_b
     if bias:
         parametrize.register_parametrization(
             tgt_ln,
@@ -414,6 +585,7 @@ def register_ln(
                 src_module_list=src_ln_list,
                 tie_b=tgt_ln.parametrizations.weight[0].ligo_b,
                 is_weight=False,
+                init_b=None,  # not used for now
             ),
         )
 

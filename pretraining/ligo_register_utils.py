@@ -141,7 +141,7 @@ def register_layer(
     # Output ffn
     # ligo_a is tied to b_fc1, ligo_b is tied to b_emb
     if hasattr(tgt_layer.intermediate.dense_act.parametrizations.weight[0], "e_inv_0"):
-        init_a = [hasattr(tgt_layer.intermediate.dense_act.parametrizations.weight[0], f"e_inv_{i}") for i in range(len(src_layer_list))]
+        init_a = [getattr(tgt_layer.intermediate.dense_act.parametrizations.weight[0], f"e_inv_{i}") for i in range(len(src_layer_list))]
         tie_a = None
     else:
         init_a = None
@@ -217,7 +217,6 @@ def register_mlm_head(
     tgt_mlm_head: Type[BertOnlyMLMHead],
     src_mlm_head_list: List[Type[BertOnlyMLMHead]],
     b_emb=Type[ParameterList],
-    avg_decoder: bool = False,
 ):
     # register linear in BertPredictionHeadTransform
     # TODO: check if we should share b_emb or learn new ligos
@@ -252,7 +251,6 @@ def register_mlm_head(
         src_linear_list=[src_mlm_head.predictions.decoder for src_mlm_head in src_mlm_head_list],
         tie_a=b_emb,
         bias=tgt_mlm_head.predictions.decoder.bias is not None,
-        avg_decoder=avg_decoder,
     )
 
 
@@ -260,7 +258,6 @@ def register_models(
     tgt_model: Type[BertLMHeadModel],
     src_model_list: List[Type[BertLMHeadModel]],
     untie_weights: bool = False,
-    avg_decoder: bool = False,
     init_type: str = None,
 ):
     global tie_flag
@@ -282,7 +279,6 @@ def register_models(
         tgt_mlm_head=tgt_model.cls,
         src_mlm_head_list=[src_model.cls for src_model in src_model_list],
         b_emb=tgt_model.bert.embeddings.word_embeddings.parametrizations.weight[0].ligo_b,
-        avg_decoder=avg_decoder,
     )
 
 

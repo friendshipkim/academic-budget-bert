@@ -85,7 +85,7 @@ class BasePretrainModel(object):
                 logger.info("Loading config from args")
                 
                 # tied embeddings - decoder
-                args.model_config["tie_decoder"] = not args.avg_decoder
+                args.model_config["avg_logits"] = args.avg_logits
                 
                 # stitched - diagonal model
                 if model_type == "stitched-bert-mlm":

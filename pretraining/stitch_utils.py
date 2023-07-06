@@ -25,7 +25,6 @@ skip_layernorm = False
 stitch4 = False
 modularize = False
 overlap = False
-avg_decoder = False
 
 
 # TODO: merge this into StitchedBertConfig
@@ -494,11 +493,10 @@ def copy_mlm_head(
             dim=-1,
         )
     else:
-        scale_factor = 2 if avg_decoder else 1
         tgt.predictions.decoder.weight.data[:] = torch.cat(
             (
-                src1.predictions.decoder.weight.data / scale_factor,
-                src2.predictions.decoder.weight.data / scale_factor,
+                src1.predictions.decoder.weight.data,
+                src2.predictions.decoder.weight.data,
             ),
             dim=-1,
         )
@@ -538,7 +536,6 @@ def stitch(
     src2: Type[BertLMHeadModel],
     tgt: Type[BertLMHeadModel],
     skip_layernorm_: bool,
-    avg_decoder_: bool,
     extra_src_list: List[Type[BertLMHeadModel]],
 ) -> None:
     """
@@ -550,14 +547,13 @@ def stitch(
         skip_layernorm_flg (bool): whether not to stitch layernorms
         extra_src_list (list): third, fourth source models if needed
     """
-    global epsilon, skip_layernorm, stitch4, modularize, overlap, avg_decoder
+    global epsilon, skip_layernorm, stitch4, modularize, overlap
     
     # overwrite global vars
     epsilon = tgt.config.epsilon
     modularize = tgt.config.modularize
     overlap = tgt.config.overlap
     skip_layernorm = skip_layernorm_
-    avg_decoder = avg_decoder_
     stitch_4 = len(extra_src_list) != 0
 
     # if only one source model is given, make dummy model with epsilon

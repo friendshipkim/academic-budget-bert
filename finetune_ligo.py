@@ -1,12 +1,11 @@
 import torch
 import wandb
 import logging
-import copy
+import glob
 import os
 from tqdm import tqdm
 
 from pretraining.base import BasePretrainModel
-from pretraining.utils import Logger
 from pretraining.schedules import get_scheduler
 from pretraining.ligo_register_utils import register_models, check_tied_weights
 from pretraining.ligo_remove_utils import remove_models
@@ -40,28 +39,34 @@ def init_ligo(args):
     Prepare ligo from the source model
     - source model paths: args.src_model*_path
     """
+    # save original avg_logits
+    avg_logits = args.avg_logits
     
     # Load two pre-training model skeletons + supplied model config
     src_model_list = []
     for src_index in range(1, args.num_src_models + 1):
         src_model_path = eval(f"args.src_model{src_index}_path")
         logging.info(f"Loading source model {src_index} from {src_model_path}")
+        
+        # base model logits are not averaged
+        args.avg_logits = False
         src_model = BasePretrainModel(args)
+        
         # checkpoint: OrderedDict with model params
         checkpoint = torch.load(os.path.join(src_model_path, "pytorch_model.bin"))
         src_model.network.load_state_dict(checkpoint)
         src_model_list.append(src_model)
     
     # stitched model skeleton
+    args.avg_logits = avg_logits
     logging.info(f"Initializing ligo model with {args.num_src_models} models...")
-    logging.info(f"Tie weights: {not args.untie_weights}, Avg decoder: {args.avg_decoder}, Init_type: {args.init_type}")
+    logging.info(f"Tie weights: {not args.untie_weights}, Avg logits: {args.avg_logits}, Init_type: {args.init_type}")
     ligo_stitched_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
     
     register_models(
         tgt_model=ligo_stitched_model.network,
         src_model_list=[src_model.network for src_model in src_model_list],
         untie_weights=args.untie_weights,
-        avg_decoder=args.avg_decoder,
         init_type=args.init_type,
     )
     
@@ -260,7 +265,77 @@ def main():
                         output_dir=args.saved_model_path,
                         is_deepspeed=False,
                     )
+                    
+                    # save non-parameterized models under args.saved_model_path
+                    del dataset_iterator
+                    del model
+                    logging.info("Saving non-parameterized models to 'args.saved_model_path/removed'")
+                    save_removed_models(args, sanity_batch=batch)
                     return
+
+
+def save_removed_models(args=None, sanity_batch=None):
+    """
+    Save removed models after sanity check on the batch
+    Sanity check: Pamaterized model -> removed model: loss should match
+    """
+    if args is None:
+        # when executing this method separately
+        args = parse_arguments()
+        pretrain_dataset_provider = PreTrainingDataset(args, logger=args.logger)
+        dataset_iterator, total_length = pretrain_dataset_provider.get_shard(0)
+        for batch_index_number, batch_index in enumerate(tqdm(dataset_iterator, smoothing=1)):
+            batch = pretrain_dataset_provider.get_batch(batch_index)
+            batch = tuple(t.to(device) for t in batch)  # Move to GPU
+            sanity_batch = batch
+            break
+    
+    saved_param_models = glob.glob(f"{args.saved_model_path}/*")
+    logging.info(f"Found {len(saved_param_models)} saved parameterized models")
+    for i, param_model_path in enumerate(saved_param_models):
+        logging.info(f"Processing {i+1}-th parameterized model...")
+        # define and load parameterized model
+        src_model_list = [BasePretrainModel(args) for _ in range(args.num_src_models)]
+        param_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
+        register_models(
+            tgt_model=param_model.network,
+            src_model_list=[src_model.network for src_model in src_model_list],
+            untie_weights=args.untie_weights,
+            init_type=args.init_type,
+        )
+
+        logging.info(f"Loading parameterized target model from {param_model_path}")
+        param_checkpoint = torch.load(os.path.join(param_model_path, "pytorch_model.bin"))
+        param_model.network.load_state_dict(param_checkpoint)
+        param_model.network.to(device)
+        param_model.eval()
+        
+        with torch.no_grad():
+            param_model_loss = param_model.network(sanity_batch)[0].item()
+            param_model_size = count_parameters(param_model.network)
+        
+        # remove parameterization
+        logging.info("Removing parameterization")
+        remove_models(param_model.network)
+        param_model.network.to(device)
+        param_model.eval()
+        
+        with torch.no_grad():
+            removed_model_loss = param_model.network(sanity_batch)[0].item()
+            removed_model_size = count_parameters(param_model.network)
+            
+        # sanity check
+        logging.info(f"Parameterized model loss: {param_model_loss:.3f}, size: {param_model_size}")
+        logging.info(f"Removed model loss: {removed_model_loss:.3f}, size: {removed_model_size}")
+        assert param_model_loss == removed_model_loss, "Sanity check failed"
+        
+        # if sanity check passed, save removed model
+        logging.info(f"Sanity check passed, saving non-parameterized model to {param_model_path}/removed")
+        param_model.save_weights(
+            checkpoint_id="removed",
+            output_dir=param_model_path,
+            is_deepspeed=False,
+        )
 
 
 def sanity_2models_eyeinit():
@@ -324,8 +399,7 @@ def sanity_2models_eyeinit():
             src_pred_out0 = src_model_list[0].network.cls(src_emb_out0, masked_token_indexes, skip_ln_dp=True)
             src_pred_out1 = src_model_list[1].network.cls(src_emb_out1, masked_token_indexes, skip_ln_dp=True)
             tgt_pred_out = tgt_model.network.cls(tgt_emb_out, masked_token_indexes, skip_ln_dp=True)
-            avg_factor = 1 if not args.avg_decoder else args.num_src_models
-            assert torch.allclose((src_pred_out0 + src_pred_out1) / avg_factor, tgt_pred_out, atol=1e-6)
+            assert torch.allclose((src_pred_out0 + src_pred_out1) , tgt_pred_out, atol=1e-6)
             
             def _get_loss(prediction_scores):
                 loss_fct = CrossEntropyLoss(ignore_index=-1)
@@ -360,7 +434,6 @@ def sanity_2models_remove():
         tgt_model=param_model.network,
         src_model_list=[src_model.network for src_model in src_model_list],
         untie_weights=args.untie_weights,
-        avg_decoder=args.avg_decoder,
         init_type=args.init_type,
     )
 

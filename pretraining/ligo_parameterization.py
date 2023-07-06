@@ -88,7 +88,7 @@ def init_net2net_b(params: Type[ParameterList]):
     params[0] = Parameter(out_expand, requires_grad=True)
 
 
-def init_pca_a(params: Type[ParameterList], e_inv_list: Type[ParameterList]):
+def init_pca_a(params: Type[ParameterList], e_inv_list: List[Type[torch.Tensor]]):
     # inherit from the previous layer
     # if previous layer was square, same as ligo_b, different otherwise
     assert len(params) == len(e_inv_list) == 2, f"pca should have two source models, but got {len(params)}"
@@ -226,7 +226,7 @@ class LigoEmbedding(nn.Module):
 
 
 class LigoDecoderLinearWeight(nn.Module):
-    def __init__(self, in_dim, src_module_list, tie_a=None, init_a=None, avg_decoder=False):
+    def __init__(self, in_dim, src_module_list, tie_a=None, init_a=None):
         super().__init__()
         self.num_src_models = len(src_module_list)
         src_in_dim = src_module_list[0].in_features
@@ -254,9 +254,7 @@ class LigoDecoderLinearWeight(nn.Module):
 
         # source weights: [d1_out x d1_in] x n_src
         # average decoder weights to get the same logit value
-        # NOTE: since this is shared with word_embedding, turn it off for now (/ self.num_src_models)
-        avg_factor = 1 if not avg_decoder else self.num_src_models
-        src_weight = [src_module_list[i].weight.detach() / avg_factor for i in range(self.num_src_models)]
+        src_weight = [src_module_list[i].weight.detach() for i in range(self.num_src_models)]
         for i, p in enumerate(src_weight):
             self.register_buffer(f"src_weight_{i}", p)
 
@@ -363,6 +361,10 @@ class LigoLinearBias(nn.Module):
         src_bias = [src_module_list[i].bias.detach() for i in range(self.num_src_models)]
         for i, p in enumerate(src_bias):
             self.register_buffer(f"src_bias_{i}", p)
+        
+        # tie_b should be given
+        assert tie_b is not None, "tie_b should be given at initialization"
+        self.ligo_b = tie_b
 
         # # NOTE: ligo_b is not registered under parametrizations.bias
         # # tie_b should be given at initialization
@@ -385,9 +387,6 @@ class LigoLinearBias(nn.Module):
         #         init_func_dict[init_type](self.ligo_b)
         # else:
         #     self.ligo_b = tie_b
-            
-        assert tie_b is not None, "tie_b should be given at initialization"
-        self.ligo_b = tie_b
 
     @property
     def params(self):
@@ -524,7 +523,6 @@ def register_decoder_linear(
     tie_a: Type[ParameterList],
     init_a: List[Type[torch.Tensor]] = None,
     bias: bool = True,
-    avg_decoder: bool = False,
 ):
     # decoder only expands input dimension
     # TODO: if decoder has bias (shape: (vocab_size,)), cannot apply ligo_a
@@ -532,7 +530,7 @@ def register_decoder_linear(
     
     if (tie_a is None) and (init_type in ['pca', 'net2net']):
         assert init_a is not None, "tie_a or init_a should be given using pca or net2net"
-        assert len(init_a) == len(src_linear_list) == 2, f"init_a should have same length as src_module_list, but got {len(init_a)} and {len(src_linear_list)}"    
+        assert len(init_a) == len(src_linear_list) == 2, f"init_a should have same length as src_module_list, but got {len(init_a)} and {len(src_linear_list)}"
     
     parametrize.register_parametrization(
         tgt_linear,
@@ -542,7 +540,6 @@ def register_decoder_linear(
             src_module_list=src_linear_list,
             tie_a=tie_a,
             init_a=init_a,
-            avg_decoder=avg_decoder,
         ),
     )
     if bias:
@@ -555,6 +552,7 @@ def register_ln(
     tie_b: Type[ParameterList],
     bias: bool = True,
     init_b: List[Type[torch.Tensor]] = None,
+    # TODO: check if init_b is tensor or parameters
 ):
     if (tie_b is None) and (init_type in ['pca', 'net2net']):
         assert init_b is not None, "tie_b or init_b should be given using pca or net2net"

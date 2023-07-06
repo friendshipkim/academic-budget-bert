@@ -325,22 +325,22 @@ def train(
 
     logger.info(f"Epoch {index}: check whether to run validation...")
     if validation_dataset is not None and scale_counter_at_1 < args.scale_cnt_limit:
-        time_diff = get_time_diff_hours(get_now(), args.exp_start_marker)
-        if should_run_validation(time_diff, args, epoch=index):
-            logger.info("Running validation...")
-            eval_losses = []
-            for shard_index in range(args.validation_shards):
-                eval_loss = pretrain_validation(args, model, validation_dataset, global_step, shard_index)
-                eval_losses.append(eval_loss)
-            eval_loss = sum(eval_losses) / len(eval_losses)
-                       
-            # log average loss
-            logger.info(f"Average Validation Loss for epoch/step {index}/{global_step} is: {eval_loss}")
-            if master_process(args):
-                log_info = {
-                    "Validation/Loss": eval_loss,
-                }
-                wandb.log(log_info, step=global_step)
+        # time_diff = get_time_diff_hours(get_now(), args.exp_start_marker)
+        # if should_run_validation(time_diff, args, epoch=index):
+        logger.info("Running validation...")
+        eval_losses = []
+        for shard_index in range(args.validation_shards):
+            eval_loss = pretrain_validation(args, model, validation_dataset, global_step, shard_index)
+            eval_losses.append(eval_loss)
+        eval_loss = sum(eval_losses) / len(eval_losses)
+                    
+        # log average loss
+        logger.info(f"Average Validation Loss for epoch/step {index}/{global_step} is: {eval_loss}")
+        if master_process(args):
+            log_info = {
+                "Validation/Loss": eval_loss,
+            }
+            wandb.log(log_info, step=global_step)
 
     logger.info(f"Epoch {index}: check if time to save a fine-tune checkpoint")
     if (is_time_to_finetune(
@@ -494,6 +494,10 @@ def parse_arguments():
         args.save_intermediate_checkpoints = True
         args.num_steps_between_checkpoints = list(range(args.num_steps_between_checkpoints, args.max_steps, args.num_steps_between_checkpoints))
     
+    # check if avg_logits is set properly
+    if args.num_src_models < 0:
+        assert args.avg_logits is False, "should not average logits if unless it's not after stitching"
+    
     return args
 
 
@@ -598,7 +602,6 @@ def stitch_models(args):
                src_model2.network,
                stitched_model.network,
                skip_layernorm_=args.skip_layernorm,
-               avg_decoder_=args.avg_decoder,
                extra_src_list=[src_model3.network, src_model4.network])
         del src_model1, src_model2, src_model3, src_model4
 
@@ -610,7 +613,6 @@ def stitch_models(args):
             src_model2.network,
             stitched_model.network,
             skip_layernorm_=args.skip_layernorm,
-            avg_decoder_=args.avg_decoder,
             extra_src_list=[],
         )
         del src_model1, src_model2
@@ -639,7 +641,6 @@ def load_finetuned_model(args):
             tgt_model=stitched_model.network,
             src_model_list=[src_model.network for src_model in src_model_list],
             untie_weights=args.untie_weights,
-            avg_decoder=args.avg_decoder,
             init_type=args.init_type,
         )
 

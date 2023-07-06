@@ -834,13 +834,14 @@ class BertLMPredictionHead(nn.Module):
         )
         self.bias = nn.Parameter(torch.zeros(bert_model_embedding_weights.size(0)))
         
+        self.config = config
+        
         # NOTE: hf bert ties embedding and decoder weights
-        if config.tie_decoder:
-            self.decoder.weight = bert_model_embedding_weights
+        self.decoder.weight = bert_model_embedding_weights
         
         # sparse mask prediction
         self.sparse_predict = config.sparse_mask_prediction
-        if not config.sparse_mask_prediction and config.tie_decoder:
+        if not config.sparse_mask_prediction:
             self.decoder.bias = self.bias
 
     def forward(self, hidden_states, masked_token_indexes, skip_ln_dp):
@@ -856,6 +857,11 @@ class BertLMPredictionHead(nn.Module):
             hidden_states = torch.index_select(
                 hidden_states.view(-1, hidden_states.shape[-1]), 0, masked_token_indexes
             )
+        
+        # average logits after stitching
+        if self.config.avg_logits:
+            hidden_states = hidden_states / self.config.num_src_models
+        
         return hidden_states
 
 

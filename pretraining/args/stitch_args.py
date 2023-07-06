@@ -56,7 +56,7 @@ class StitchArguments:
         default=8, metadata={"help": "decrease the intermediate hidden size from 8x to the given integer too add some blend parameters"}
     )
     num_src_models: Optional[int] = field(
-        default=2, metadata={"help": "(only for ligo) number of source model to stitch"}
+        default=-1, metadata={"help": "(only for ligo) number of source model to stitch"}
     )
     
     # custom target model config
@@ -70,8 +70,8 @@ class StitchArguments:
     untie_weights: Optional[bool] = field(
         default=False, metadata={"help": "(only for ligo) whether to untie growth operators"}
     )
-    avg_decoder: Optional[bool] = field(
-        default=False, metadata={"help": "(only for ligo) whether to average decoder weights during finetuning"}
+    avg_logits: Optional[bool] = field(
+        default=False, metadata={"help": "whether to average logit values during finetuning and after stitching"}
     )
     init_type: Optional[str] = field(
         default="eye", metadata={"help": "(only for ligo) how to initialize growth operators"}

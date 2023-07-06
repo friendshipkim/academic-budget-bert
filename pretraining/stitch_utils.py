@@ -52,6 +52,41 @@ def check_if_stitchable(
     ), "attention head size should match"
 
 
+def copy_embedding(
+    src1: Union[Type[nn.Linear], Type[nn.Embedding]],
+    src2: Union[Type[nn.Linear], Type[nn.Embedding]],
+    tgt: Union[Type[nn.Linear], Type[nn.Embedding]],
+    extra_src_list: List[Union[Type[nn.Linear], Type[nn.Embedding], None]],
+) -> None:
+    """
+    Copy embedding of the two source BertEmbeddings modules to the target module
+    Average overlap
+    """
+    if stitch4:
+        src3, src4 = extra_src_list
+        tgt.weight.data[:] = torch.cat(
+            (
+                (src1.weight.data + src2.weight.data) / 2,
+                (src3.weight.data + src4.weight.data) / 2,
+            ),
+            dim=-1,
+        )
+    else:
+        src1_dim, src2_dim, tgt_dim = (
+            src1.weight.size(1),
+            src2.weight.size(1),
+            tgt.weight.size(1),
+        )
+        assert tgt_dim <= src1_dim + src2_dim
+        
+        tgt.weight.data[:] = 0
+        tgt.weight.data[:, :src1_dim] += src1.weight.data
+        tgt.weight.data[:, -src2_dim:] += src2.weight.data
+        
+        # average overlap
+        tgt.weight.data[:, -src2_dim:src1_dim] = tgt.weight.data[:, -src2_dim:src1_dim] / 2
+
+
 def copy_linear(
     src1: Union[Type[nn.Linear], Type[LinearActivation]],
     src2: Union[Type[nn.Linear], Type[LinearActivation]],
@@ -68,7 +103,7 @@ def copy_linear(
         extra_src_list (List[torch.nn.Linear or LinearActivation]): third, fourth source Linear layer if needed
     """
     if stitch4:
-        src3, src4 = extra_src_list[0], extra_src_list[1]
+        src3, src4 = extra_src_list
 
         # Check if bias exists
         assert None not in (
@@ -131,12 +166,8 @@ def copy_linear(
             src2_out_dim, src2_in_dim = src2.weight.size()
             tgt_out_dim, tgt_in_dim = tgt.weight.size()
 
-            if overlap:
-                assert tgt_out_dim <= src1_out_dim + src2_out_dim
-                assert tgt_in_dim <= src1_in_dim + src2_in_dim
-            else:
-                assert tgt_out_dim == src1_out_dim + src2_out_dim
-                assert tgt_in_dim == src1_in_dim + src2_in_dim
+            assert tgt_out_dim <= src1_out_dim + src2_out_dim
+            assert tgt_in_dim <= src1_in_dim + src2_in_dim
 
             # Initialize with epsilon
             tgt.weight.data[:] = epsilon
@@ -144,28 +175,26 @@ def copy_linear(
             # # initialize to normal dist
             # mu, std = 0, 1e-3
             # tgt.weight.data[:] = torch.randn_like(tgt.weight.data) * std + mu
-
-            # Copy weights diagonally
-            tgt.weight.data[:src1_out_dim, :src1_in_dim] = src1.weight.data
-            tgt.weight.data[-src2_out_dim:, -src2_in_dim:] = src2.weight.data
+            
+            # TODO: implement when epsilon is not 0
+            if epsilon == 0.0:
+                # Copy weights diagonally
+                tgt.weight.data[:src1_out_dim, :src1_in_dim] += src1.weight.data
+                tgt.weight.data[-src2_out_dim:, -src2_in_dim:] += src2.weight.data
+                
+                # average overlap
+                tgt.weight.data[-src2_out_dim:src1_out_dim, -src2_in_dim:src1_in_dim] = tgt.weight.data[-src2_out_dim:src1_out_dim, -src2_in_dim:src1_in_dim] / 2
+            else:
+                raise NotImplementedError
 
             # If biases exist, copy biases
             if tgt.bias is not None:
-                if overlap:
-                    src1_out_gap = tgt_out_dim - src1_out_dim
-                    src2_out_gap = tgt_out_dim - src2_out_dim
-                    
-                    # overlap biases
-                    tgt.bias.data[:src1_out_dim] = src1.bias.data
-                    tgt.bias.data[-src2_out_dim:] = src2.bias.data
-                    
-                    assert tgt.bias.data[src1_out_gap:-src2_out_gap].shape == src1.bias.data[src1_out_gap:].shape
-                    assert tgt.bias.data[src1_out_gap:-src2_out_gap].shape == src2.bias.data[:-src2_out_gap].shape
-                    
-                    tgt.bias.data[src1_out_gap:-src2_out_gap] = (src1.bias.data[src1_out_gap:] + src2.bias.data[:-src2_out_gap]) / 2
-                else:
-                    tgt.bias.data[:src1_out_dim] = src1.bias.data
-                    tgt.bias.data[-src2_out_dim:] = src2.bias.data
+                tgt.bias.data[:] = 0
+                tgt.bias.data[:src1_out_dim] += src1.bias.data
+                tgt.bias.data[-src2_out_dim:] += src2.bias.data
+                
+                # average overlap
+                tgt.bias.data[-src2_out_dim:src1_out_dim] = tgt.bias.data[-src2_out_dim:src1_out_dim] / 2
 
 
 def copy_layernorm(
@@ -210,16 +239,20 @@ def copy_layernorm(
             src2.weight.size(0),
             tgt.weight.size(0),
         )
-        assert tgt_dim == src1_dim + src2_dim
+        assert tgt_dim <= src1_dim + src2_dim
 
         # Copy weights
         # NOTE: if stitching two different models: (src1.weight.data + src2.weight.data) / 2
-        tgt.weight.data[:src1_dim] = src1.weight.data  # / 2
-        tgt.weight.data[-src2_dim:] = src2.weight.data  # / 2
+        tgt.weight.data[:src1_dim] += src1.weight.data
+        tgt.weight.data[-src2_dim:] += src2.weight.data
+        # average overlap
+        tgt.weight.data[-src2_dim:src1_dim] = tgt.weight.data[-src2_dim:src1_dim] / 2
 
         # Copy biases
-        tgt.bias.data[:src1_dim] = src1.bias.data  # / 2
-        tgt.bias.data[-src2_dim:] = src2.bias.data  # / 2
+        tgt.bias.data[:src1_dim] = src1.bias.data
+        tgt.bias.data[-src2_dim:] = src2.bias.data
+        # average overlap
+        tgt.bias.data[-src2_dim:src1_dim] = tgt.bias.data[-src2_dim:src1_dim] / 2
 
 
 def copy_self_attn(
@@ -351,7 +384,7 @@ def copy_layer(
         )
 
 
-def copy_embeddings(
+def copy_bert_embeddings(
     src1: Type[BertEmbeddings],
     src2: Type[BertEmbeddings],
     tgt: Type[BertEmbeddings],
@@ -368,27 +401,13 @@ def copy_embeddings(
     # Embeddings
     embed_types = ["word_embeddings", "position_embeddings", "token_type_embeddings"]
 
-    if stitch4:
-        src3, src4 = extra_src_list
-        for embed_type in embed_types:
-            tgt.get_submodule(embed_type).weight.data[:] = torch.cat(
-                (
-                    (src1.get_submodule(embed_type).weight.data
-                     + src2.get_submodule(embed_type).weight.data) / 2,
-                    (src3.get_submodule(embed_type).weight.data
-                     + src4.get_submodule(embed_type).weight.data) / 2,
-                ),
-                dim=-1,
-            )
-    else:
-        for embed_type in embed_types:
-            tgt.get_submodule(embed_type).weight.data[:] = torch.cat(
-                (
-                    src1.get_submodule(embed_type).weight.data,
-                    src2.get_submodule(embed_type).weight.data,
-                ),
-                dim=-1,
-            )
+    for embed_type in embed_types:
+        copy_embedding(
+            src1=src1.get_submodule(embed_type),
+            src2=src2.get_submodule(embed_type),
+            tgt=tgt.get_submodule(embed_type),
+            extra_src_list=[src.get_submodule(embed_type) for src in extra_src_list] if stitch4 else [],
+        )
 
     # # Embedding layernorm
     # if not skip_layernorm:
@@ -409,7 +428,7 @@ def copy_bert(
         extra_src_list (list): third, fourth source BertModels if needed
     """
     # Embeddings
-    copy_embeddings(
+    copy_bert_embeddings(
         src1.embeddings,
         src2.embeddings,
         tgt.embeddings,
@@ -483,23 +502,12 @@ def copy_mlm_head(
 
     # copy decoder of BertLMPredictionHead
     # concat along the last axis, size: hidden_size x vocab_size
-    if stitch4:
-        src3, src4 = extra_src_list[0], extra_src_list[1]
-        tgt.predictions.decoder.weight.data[:] = torch.cat(
-            (
-                (src1.predictions.decoder.weight.data + src2.predictions.decoder.weight.data) / 2,
-                (src3.predictions.decoder.weight.data + src4.predictions.decoder.weight.data) / 2,
-            ),
-            dim=-1,
-        )
-    else:
-        tgt.predictions.decoder.weight.data[:] = torch.cat(
-            (
-                src1.predictions.decoder.weight.data,
-                src2.predictions.decoder.weight.data,
-            ),
-            dim=-1,
-        )
+    copy_embedding(
+        src1.predictions.decoder,
+        src2.predictions.decoder,
+        tgt.predictions.decoder,
+        extra_src_list=[src.predictions.decoder for src in extra_src_list] if stitch4 else [],
+    )
 
 
 def make_dummy_model(

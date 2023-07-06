@@ -1,7 +1,11 @@
+#!/bin/bash
+eval "$(conda shell.bash hook)"
+conda activate pretrain
 export WANDB_MODE=online
 export CUDA_VISIBLE_DEVICES=0,1,2,3
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
-deepspeed --num_gpus 4 run_pretraining.py \
+export NCCL_P2P_LEVEL=NVL
+deepspeed --num_gpus 1 --master_port 29503 run_pretraining.py \
   --model_type bert-mlm --tokenizer_name bert-large-uncased \
   --hidden_act gelu \
   --hidden_size 512 \
@@ -10,9 +14,9 @@ deepspeed --num_gpus 4 run_pretraining.py \
   --intermediate_size 2048 \
   --hidden_dropout_prob 0.1 \
   --attention_probs_dropout_prob 0.1 \
-  --encoder_ln_mode pre-ln \
-  --lr 1e-3 \
-  --train_batch_size 4096 \
+  --encoder_ln_mode post-ln \
+  --lr 8e-5 \
+  --train_batch_size 512 \
   --train_micro_batch_size_per_gpu 64 \
   --lr_schedule step \
   --curve linear \
@@ -22,15 +26,15 @@ deepspeed --num_gpus 4 run_pretraining.py \
   --adam_beta1 0.9 \
   --adam_beta2 0.98 \
   --adam_eps 1e-6 \
-  --max_steps 20000 \
-  --num_warmup_steps 1200 \
-  --warmup_proportion 0.06 \
+  --max_steps 160000 \
+  --num_warmup_steps 0 \
+  --warmup_proportion 0.0 \
   --print_steps 100 \
   --num_epochs_between_checkpoints 100 \
-  --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20_ver2/set23/ \
-  --output_dir /n/tata_ddos_ceph/woojeong/saved_models/ligo-bert-pretrain/ \
-  --job_name 2xhalflarge \
-  --current_run_id set23-20ksteps-1.2kwarmup-bsz4096-lr1e-3-5val \
+  --dataset_path /home/wk247/data/enwiki_books_128_20_ver2/set23/ \
+  --output_dir /home/wk247/saved_models/ligo-bert-pretrain/ \
+  --job_name 2xhalflarge-hf \
+  --current_run_id set23-160ksteps-nowarmup-bsz512-lr8e-5-noavg-5val \
   --project_name budget-bert-pretraining \
   --validation_epochs 3 \
   --validation_epochs_begin 1 \
@@ -44,6 +48,7 @@ deepspeed --num_gpus 4 run_pretraining.py \
   --do_validation \
   --seed 333 \
   --fp16 \
-  --load_tokenizer_locally \
+  --hf_architecture \
   --num_src_models 2 \
-  --finetuned_model_path /n/tata_ddos_ceph/woojeong/saved_models/ligo-bert/2xhalflarge-set23-50steps-nowarmup-bsz512-lr2e-5-noval-eyeinit/set23-50steps-nowarmup-bsz512-lr2e-5-noval-eyeinit/epoch1_step50/
+  --avg_logits True \
+  --finetuned_model_path /home/wk247/saved_models/ligo-bert/2xhalflarge-hf-set23-100steps-nowarmup-bsz512-lr1e-5-eyeinit-noavg-val20-base512-2e-4/set23-100steps-nowarmup-bsz512-lr1e-5-eyeinit-noavg-val20-base512-2e-4/epoch1_step100/

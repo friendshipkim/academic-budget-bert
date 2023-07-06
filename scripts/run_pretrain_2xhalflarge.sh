@@ -1,12 +1,11 @@
-# Script to train a 2xhalflarge models
-# Stitch two half-large models trained on set 0/1 for 10k steps
-# and train the stitched model on set 2/3 
-# Train for 20k steps with 4 Titan-RTX gpu
-
-export WANDB_MODE=disabled
-# export CUDA_VISIBLE_DEVICES=0,1,2,3
-# deepspeed --num_gpus 4 run_pretraining.py \
-deepspeed --include localhost:0 --master_port 29502 run_pretraining.py \
+#!/bin/bash
+eval "$(conda shell.bash hook)"
+conda activate pretrain
+export WANDB_MODE=online
+export CUDA_VISIBLE_DEVICES=0,1,2,3
+export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+export NCCL_P2P_LEVEL=NVL
+deepspeed --num_gpus 4 --master_port 29502 run_pretraining.py \
   --model_type bert-mlm --tokenizer_name bert-large-uncased \
   --hidden_act gelu \
   --hidden_size 512 \
@@ -15,27 +14,27 @@ deepspeed --include localhost:0 --master_port 29502 run_pretraining.py \
   --intermediate_size 2048 \
   --hidden_dropout_prob 0.1 \
   --attention_probs_dropout_prob 0.1 \
-  --encoder_ln_mode pre-ln \
-  --lr 1e-3 \
-  --train_batch_size 4096 \
-  --train_micro_batch_size_per_gpu 64 \
+  --encoder_ln_mode post-ln \
+  --lr 8e-5 \
+  --train_batch_size 512 \
+  --train_micro_batch_size_per_gpu 128 \
   --lr_schedule step \
   --curve linear \
-  --warmup_proportion 0.06 \
   --gradient_clipping 0.0 \
   --optimizer_type adamw \
   --weight_decay 0.01 \
   --adam_beta1 0.9 \
   --adam_beta2 0.98 \
   --adam_eps 1e-6 \
-  --max_steps 5000 \
-  --num_warmup_steps 300 \
+  --max_steps 160000 \
+  --num_warmup_steps 0 \
+  --warmup_proportion 0.0 \
   --print_steps 100 \
-  --num_epochs_between_checkpoints 10000 \
-  --dataset_path /n/tata_ddos_ceph/woojeong/data/enwiki_books_128_20/total_balanced/ \
-  --output_dir /n/tata_ddos_ceph/woojeong/saved_models/pretrain/ \
-  --job_name 2xhalflarge-5ksteps-tmp \
-  --current_run_id set23-5ksteps-5val-tmp \
+  --num_epochs_between_checkpoints 100 \
+  --dataset_path /home/wk247/data/enwiki_books_128_20_ver2/set23/ \
+  --output_dir /home/wk247/saved_models/stitch-bert-pretrain/ \
+  --job_name 2xhalflarge-hf \
+  --current_run_id set23-160ksteps-nowarmup-bsz512-lr8e-5-noavg-5val \
   --project_name budget-bert-pretraining \
   --validation_epochs 3 \
   --validation_epochs_begin 1 \
@@ -47,10 +46,11 @@ deepspeed --include localhost:0 --master_port 29502 run_pretraining.py \
   --deepspeed \
   --data_loader_type dist \
   --do_validation \
-  --seed 42 \
+  --seed 333 \
   --fp16 \
-  --load_tokenizer_locally \
+  --hf_architecture \
   --do_stitch \
-  --src_model1_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-set0-10ksteps-5val/set0-10ksteps-5val/epoch1000000_step10022/ \
-  --src_model2_path /n/tata_ddos_ceph/woojeong/saved_models/pretrain/halflarge-set1-10ksteps-5val/set1-10ksteps-5val/epoch1000000_step10002/ \
-  --record_gradient_norm
+  --num_src_models 2 \
+  --avg_logits True \
+  --src_model1_path ~/saved_models/pretrain/halflarge-set0-disjoint-bsz512-80ksteps-5val/set0-disjoint-bsz512-80ksteps-5val/epoch1000000000_step80199 \
+  --src_model2_path ~/saved_models/pretrain/halflarge-set1-disjoint-bsz512-80ksteps-5val/set1-disjoint-bsz512-80ksteps-5val/epoch1000000000_step80066 \

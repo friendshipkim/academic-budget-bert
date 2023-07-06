@@ -320,7 +320,6 @@ def check_inherit(
     tgt_model:Type[BertLMHeadModel],
     src_model_list: List[Type[BertLMHeadModel]],
     untie_weights: bool,
-    avg_decoder: bool,
     init_type: str
 ):
     global tie_flag
@@ -397,7 +396,6 @@ def check_inherit(
         src_linear_list=src_decoder_linear_list,
         tie_a=None,
         bias=tgt_decoder_linear.bias is not None,
-        avg_decoder=avg_decoder,
         init_a=b_emb_init,
     )
     # remove_linear(tgt_decoder_linear, bias=tgt_decoder_linear.bias is not None)

@@ -78,28 +78,22 @@ class StitchedPretrainedBertConfig(PretrainedBertConfig):
         # NOTE: now stitching two models with identical architectures
         # to use two different architectures, change it to take two BertConfigs
         self.is_stitched = True
-        self.hidden_size = self.hidden_size * 2
+        
+        # allow customizing target model
+        self.num_src_models = kwargs.get("num_src_models", 2)
+        self.hidden_size = kwargs.get("target_hidden_size", self.hidden_size * 2)
+        self.intermediate_size = kwargs.get("target_intermediate_size", self.intermediate_size * 2)
+        self.num_attention_heads = kwargs.get("target_num_attention_heads", self.num_attention_heads * 2)
+        
+        # overlap
         self.overlap = kwargs.get("overlap", 8)
         if self.overlap != 8:
-            self.intermediate_size = self.intermediate_size // 4 * self.overlap
-        else:
-            self.intermediate_size = self.intermediate_size * 2
-        self.num_attention_heads = self.num_attention_heads * 2
+            self.intermediate_size = self.intermediate_size * self.overlap // 8
+
         self.epsilon = kwargs.get("epsilon", 0)
         self.modularize = kwargs.get("modularize", False)
         self.add_blend_layer = kwargs.get("add_blend_layer", False)
 
-
-class LigoStitchedPretrainedBertConfig(StitchedPretrainedBertConfig):
-    model_type = "ligo-stitched-bert"
-    
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.num_src_models = kwargs.get("num_src_models", 2)
-        self.hidden_size = kwargs.get("target_hidden_size", self.hidden_size)
-        self.intermediate_size = kwargs.get("target_intermediate_size", self.intermediate_size)
-        self.num_attention_heads = kwargs.get("target_num_attention_heads", self.num_attention_heads)
-    
 
 class PretrainedRobertaConfig(PretrainedBertConfig):
     model_type = "roberta"

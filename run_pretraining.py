@@ -598,7 +598,6 @@ def stitch_models(args):
                src_model2.network,
                stitched_model.network,
                skip_layernorm_=args.skip_layernorm,
-               avg_decoder_=args.avg_decoder,
                extra_src_list=[src_model3.network, src_model4.network])
         del src_model1, src_model2, src_model3, src_model4
 
@@ -610,7 +609,6 @@ def stitch_models(args):
             src_model2.network,
             stitched_model.network,
             skip_layernorm_=args.skip_layernorm,
-            avg_decoder_=args.avg_decoder,
             extra_src_list=[],
         )
         del src_model1, src_model2
@@ -623,7 +621,7 @@ def load_finetuned_model(args):
     removed_model_path = os.path.join(args.finetuned_model_path, "removed/")
     if os.path.exists(removed_model_path):
         logger.info(f"Loading parameterized target model from {args.finetuned_model_path}")
-        stitched_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
+        stitched_model = BasePretrainModel(args, model_type="stitched-bert-mlm")
         stitched_checkpoint = torch.load(os.path.join(removed_model_path, "pytorch_model.bin"))
         stitched_model.network.load_state_dict(stitched_checkpoint)
         

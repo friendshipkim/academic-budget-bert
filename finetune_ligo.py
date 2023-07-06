@@ -54,7 +54,7 @@ def init_ligo(args):
     args.avg_logits = avg_logits
     logging.info(f"Initializing ligo model with {args.num_src_models} models...")
     logging.info(f"Tie weights: {not args.untie_weights}, Avg logits: {args.avg_logits}, Init_type: {args.init_type}")
-    ligo_stitched_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
+    ligo_stitched_model = BasePretrainModel(args, model_type="stitched-bert-mlm")
     
     register_models(
         tgt_model=ligo_stitched_model.network,
@@ -289,7 +289,7 @@ def save_removed_models(args=None, sanity_batch=None):
         logging.info(f"Processing {i+1}-th parameterized model...")
         # define and load parameterized model
         src_model_list = [BasePretrainModel(args) for _ in range(args.num_src_models)]
-        param_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
+        param_model = BasePretrainModel(args, model_type="stitched-bert-mlm")
         register_models(
             tgt_model=param_model.network,
             src_model_list=[src_model.network for src_model in src_model_list],
@@ -422,7 +422,7 @@ def sanity_2models_remove():
     src_model_list = [BasePretrainModel(args) for _ in range(args.num_src_models)]
     
     logging.info(f"Initializing parameterized model with {args.num_src_models} models...")
-    param_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
+    param_model = BasePretrainModel(args, model_type="stitched-bert-mlm")
     register_models(
         tgt_model=param_model.network,
         src_model_list=[src_model.network for src_model in src_model_list],
@@ -449,7 +449,7 @@ def sanity_2models_remove():
         exit()
     
     logging.info("Loading removed target model")
-    removed_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
+    removed_model = BasePretrainModel(args, model_type="stitched-bert-mlm")
     removed_checkpoint = torch.load(os.path.join(param_model_path, "removed/pytorch_model.bin"))
     removed_model.network.load_state_dict(removed_checkpoint)
     removed_model.eval()

@@ -25,7 +25,6 @@ from pretraining.configs import (
     PretrainedBertConfig,
     PretrainedRobertaConfig,
     StitchedPretrainedBertConfig,
-    LigoStitchedPretrainedBertConfig
 )
 from pretraining.modeling import BertLMHeadModel
 from pretraining.utils import to_sanitized_dict
@@ -37,7 +36,6 @@ MODELS = {
     "bert-mlm": (BertLMHeadModel, PretrainedBertConfig, BertTokenizer),
     "bert-mlm-roberta": (BertLMHeadModel, PretrainedRobertaConfig, RobertaTokenizer),
     "stitched-bert-mlm": (BertLMHeadModel, StitchedPretrainedBertConfig, BertTokenizer),
-    "ligo-stitched-bert-mlm": (BertLMHeadModel, LigoStitchedPretrainedBertConfig, BertTokenizer)
 }
 
 
@@ -87,14 +85,12 @@ class BasePretrainModel(object):
                 # tied embeddings - decoder
                 args.model_config["avg_logits"] = args.avg_logits
                 
-                # stitched - diagonal model
+                # stitched
                 if model_type == "stitched-bert-mlm":
                     args.model_config["modularize"] = args.modularize
                     args.model_config["add_blend_layer"] = args.add_blend_layer
                     args.model_config["overlap"] = args.overlap
                 
-                # ligo stitched - custom target config
-                elif model_type == "ligo-stitched-bert-mlm":
                     if args.target_hidden_size == -1:
                         args.model_config["target_hidden_size"] = args.model_config["hidden_size"] * 2
                         args.model_config["target_intermediate_size"] = args.model_config["intermediate_size"] * 2

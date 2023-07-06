@@ -7,6 +7,7 @@ from tqdm import tqdm
 
 from pretraining.base import BasePretrainModel
 from pretraining.schedules import get_scheduler
+from pretraining.utils import count_parameters, count_parameterized_parameters
 from pretraining.ligo_register_utils import register_models, check_tied_weights
 from pretraining.ligo_remove_utils import remove_models
 from pretraining.dataset.pretraining_dataset import (
@@ -24,14 +25,6 @@ from run_pretraining import parse_arguments
 # logger = Logger(cuda=torch.cuda.is_available())
 # logging.basicConfig(filename="./finetune_100step_nowarmup_lr2e-4.log", filemode='w', level=logging.INFO)
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
-
-def count_parameterized_parameters(model):
-    return sum(p.numel() for n, p in model.named_parameters() if (p.requires_grad) and ("original" not in n))
-
-
-def count_parameters(model):
-    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
 def init_ligo(args):
@@ -456,7 +449,7 @@ def sanity_2models_remove():
         exit()
     
     logging.info("Loading removed target model")
-    removed_model = BasePretrainModel(args, model_type="stitched-bert-mlm")
+    removed_model = BasePretrainModel(args, model_type="ligo-stitched-bert-mlm")
     removed_checkpoint = torch.load(os.path.join(param_model_path, "removed/pytorch_model.bin"))
     removed_model.network.load_state_dict(removed_checkpoint)
     removed_model.eval()
@@ -475,6 +468,11 @@ def sanity_2models_remove():
         token_type_ids = batch[3]  # (all 0): [32, 128]
         masked_lm_labels = batch[4]  # [32, 128]
         masked_token_indexes = torch.nonzero((masked_lm_labels + 1).view(-1), as_tuple=False).view(-1)
+        
+        print(f"param_model loss: {param_model.network(batch)[0].item()}")
+        print(f"removed_model loss: {removed_model.network(batch)[0].item()}")
+
+        breakpoint()
         
         # check if param_model's decoder and word embeddings are tied
         word_weight_0 = param_model.network.bert.embeddings.word_embeddings.parametrizations.weight[0].src_weight_0.detach()  # [30528, 512]
@@ -528,3 +526,4 @@ def sanity_2models_remove():
 if __name__ == "__main__":
     main()
     # sanity_2models_remove()
+    # save_removed_models()

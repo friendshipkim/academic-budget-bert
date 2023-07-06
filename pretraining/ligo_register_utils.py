@@ -314,3 +314,104 @@ def check_tied_weights(tgt_model):
     b_fc1_tied_list = _get_identical_params(b_fc1, state_dict)
     
     breakpoint()
+    
+
+def check_inherit(
+    tgt_model:Type[BertLMHeadModel],
+    src_model_list: List[Type[BertLMHeadModel]],
+    untie_weights: bool,
+    avg_decoder: bool,
+    init_type: str
+):
+    global tie_flag
+
+    from pretraining.ligo_parameterization import (
+        remove_embedding,
+        remove_linear,
+        remove_ln,
+    )
+
+    set_init_type(init_type)
+    n_src_models = len(src_model_list)
+
+    # ===== test embeddings =====
+    tgt_word_emb = tgt_model.bert.embeddings.word_embeddings
+    src_word_emb_list = [src_model.bert.embeddings.word_embeddings for src_model in src_model_list]
+    register_embedding(
+        tgt_emb=tgt_word_emb,
+        src_emb_list=src_word_emb_list,
+        tie_b=None,
+    )
+    # save b_emb for tying
+    b_emb = tgt_word_emb.parametrizations.weight[0].ligo_b
+    b_emb_init = [getattr(tgt_word_emb.parametrizations.weight[0], f"e_inv_{i}") for i in range(n_src_models)]
+
+    # # ===== test ln =====
+    # tgt_emb_ln = tgt_model.bert.embeddings.LayerNorm
+    # src_emb_ln_list = [src_model.bert.embeddings.LayerNorm for src_model in src_model_list]
+
+    # register_ln(
+    #     tgt_ln=tgt_emb_ln,
+    #     src_ln_list=src_emb_ln_list,
+    #     tie_b=None,
+    #     bias=tgt_emb_ln.bias is not None,
+    #     init_b=b_emb_init,
+    # )
+    # # remove_ln(tgt_ln, bias=tgt_ln.bias is not None)
+
+    # # ===== test linear (square) =====
+    # tgt_linear = tgt_model.bert.encoder.layer[0].attention.self.query
+    # src_linear_list = [src_model.bert.encoder.layer[0].attention.self.query for src_model in src_model_list]
+
+    # register_linear(
+    #     tgt_linear=tgt_linear,
+    #     src_linear_list=src_linear_list,
+    #     tie_a=None,
+    #     tie_b=None,
+    #     bias=tgt_linear.bias is not None,
+    #     init_a=b_emb_init,
+    # )
+    # # remove_linear(tgt_linear, bias=tgt_linear.bias is not None)
+
+    # # ===== test linear (non-square) =====
+    # tgt_linear = tgt_model.bert.encoder.layer[0].intermediate.dense_act
+    # src_linear_list = [src_model.bert.encoder.layer[0].intermediate.dense_act for src_model in src_model_list]
+
+    # register_linear(
+    #     tgt_linear=tgt_linear,
+    #     src_linear_list=src_linear_list,
+    #     tie_a=b_emb,  # None
+    #     tie_b=None,
+    #     bias=tgt_linear.bias is not None,
+    # )
+    # # remove_linear(tgt_linear, bias=tgt_linear.bias is not None)
+
+    # # NOTE: some rows of e_inv_0 are all zero, probably due to zero singular values
+    # # (tgt_linear.parametrizations.weight[0].e_inv_0.sum(1) != 0.0).sum() == 1529
+
+    # ===== test linear decoder =====
+    tgt_decoder_linear = tgt_model.cls.predictions.decoder
+    src_decoder_linear_list = [src_model.cls.predictions.decoder for src_model in src_model_list]
+    register_decoder_linear(
+        tgt_linear=tgt_decoder_linear,
+        src_linear_list=src_decoder_linear_list,
+        tie_a=None,
+        bias=tgt_decoder_linear.bias is not None,
+        avg_decoder=avg_decoder,
+        init_a=b_emb_init,
+    )
+    # remove_linear(tgt_decoder_linear, bias=tgt_decoder_linear.bias is not None)
+
+    # # pca checklist
+    # # ligo_b == [PCA, I], [I, PCA]
+    # tgt_word_emb.parametrizations.weight[0].ligo_b[0]
+    # tgt_word_emb.parametrizations.weight[0].ligo_b[1]
+
+    # # e_env_list is registered
+    # tgt_word_emb.parametrizations.weight[0].e_inv_0
+    # tgt_word_emb.parametrizations.weight[0].e_inv_1
+
+    # # after remove, block diagonal matrix (except for embeddings)
+    # remove_embedding(tgt_word_emb)
+
+    breakpoint()

@@ -1,20 +1,14 @@
 import torch
-import wandb
 import logging
-import glob
 import os
 from tqdm import tqdm
 
+from torch.optim import AdamW
 from pretraining.base import BasePretrainModel
 from pretraining.schedules import get_scheduler
-from pretraining.utils import count_parameters, count_parameterized_parameters
+from pretraining.utils import count_parameterized_parameters
 from pretraining.ligo_register_utils import register_models
-from pretraining.dataset.pretraining_dataset import (
-    PreTrainingDataset,
-)
-
-from torch.optim import AdamW
-
+from pretraining.dataset.pretraining_dataset import PreTrainingDataset
 from run_pretraining import parse_arguments
 
 device = "cuda" if torch.cuda.is_available() else "cpu"

@@ -409,9 +409,9 @@ def copy_bert_embeddings(
             extra_src_list=[src.get_submodule(embed_type) for src in extra_src_list] if stitch4 else [],
         )
 
-    # # Embedding layernorm
-    # if not skip_layernorm:
-    #     copy_layernorm(src1.LayerNorm, src2.LayerNorm, tgt.LayerNorm)
+    # Embedding layernorm
+    if not skip_layernorm:
+        copy_layernorm(src1.LayerNorm, src2.LayerNorm, tgt.LayerNorm)
 
 
 def copy_bert(

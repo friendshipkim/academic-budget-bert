@@ -56,7 +56,6 @@ from deepspeed.profiling.flops_profiler import FlopsProfiler
 from deepspeed.profiling.flops_profiler import get_model_profile
 
 import deepspeed
-import numpy as np
 import torch
 import torch.distributed as dist
 from torch.utils.data import DataLoader, Dataset
@@ -164,8 +163,6 @@ def train(
         prof = FlopsProfiler(model.network.module)
         profile_steps = [10, 20, 30]
         print_profile = True
-    else:
-        profile_steps = []
 
     model.train()
 
@@ -237,8 +234,7 @@ def train(
                     exit()
 
             unscaled_loss = total_loss.item()
-            current_data_sample_count += (args.train_micro_batch_size_per_gpu *
-                                            dist.get_world_size())
+            current_data_sample_count += (args.train_micro_batch_size_per_gpu * dist.get_world_size())
 
             # Prefetch training data
             pretrain_dataset_provider.prefetch_batch()

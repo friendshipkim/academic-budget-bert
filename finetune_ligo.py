@@ -53,7 +53,7 @@ def init_ligo(args):
     # stitched model skeleton
     args.avg_logits = avg_logits
     logging.info(f"Initializing ligo model with {args.num_src_models} models...")
-    logging.info(f"Tie weights: {not args.untie_weights}, Avg logits: {args.avg_logits}, Init_type: {args.init_type}")
+    logging.info(f"Tie weights: {not args.untie_weights}, Avg logits: {args.avg_logits}, Init_type: {args.init_type}, Skip ln: {args.skip_layernorm}")
     ligo_stitched_model = BasePretrainModel(args, model_type="stitched-bert-mlm")
     
     register_models(
@@ -61,6 +61,7 @@ def init_ligo(args):
         src_model_list=[src_model.network for src_model in src_model_list],
         untie_weights=args.untie_weights,
         init_type=args.init_type,
+        skip_layernorm=args.skip_layernorm,
     )
     
     # # check if weights are tied properly
@@ -295,6 +296,7 @@ def save_removed_models(args=None, sanity_batch=None):
             src_model_list=[src_model.network for src_model in src_model_list],
             untie_weights=args.untie_weights,
             init_type=args.init_type,
+            skip_layernorm=args.skip_layernorm,
         )
 
         logging.info(f"Loading parameterized target model from {param_model_path}")
@@ -428,6 +430,7 @@ def sanity_2models_remove():
         src_model_list=[src_model.network for src_model in src_model_list],
         untie_weights=args.untie_weights,
         init_type=args.init_type,
+        skip_layernorm=args.skip_layernorm,
     )
 
     param_model_path = "/home/wk247/saved_models/ligo-bert/2xhalflarge-hf-set23-100steps-nowarmup-bsz512-lr1e-5-eyeinit-notie-val20-base512-2e-4/set23-100steps-nowarmup-bsz512-lr1e-5-eyeinit-notie-val20-base512-2e-4/epoch1_step100"

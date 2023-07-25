@@ -48,6 +48,7 @@ def init_ligo(args):
         src_model_list=[src_model.network for src_model in src_model_list],
         untie_weights=args.untie_weights,
         init_type=args.init_type,
+        skip_layernorm=args.skip_layernorm,
     )
     
     # # delete source models

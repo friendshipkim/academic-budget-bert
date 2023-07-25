@@ -422,9 +422,7 @@ class LigoLN(nn.Module):
                 )
                 
                 # init ligo_b depending on init_type
-                if init_type == 'pca':
-                    pad_param_list_from_pca_init(self.ligo_b, init_b)
-                elif init_type == 'net2net':
+                if init_type in ['pca', 'net2net']:
                     # init_b should be given and ligo_b.shape == init_b.shape
                     for ligo_b, init_b_ in zip(self.ligo_b, init_b):
                         ligo_b.data[:] = init_b_.data[:]
@@ -503,7 +501,7 @@ def register_linear(
             init_a=init_a,
         ),
     )
-    # bias ligo_b is tied to weight ligo_b
+    # NOTE: bias ligo_b is tied to weight ligo_b, can change to init_b
     if bias:
         parametrize.register_parametrization(
             tgt_linear,
@@ -552,12 +550,11 @@ def register_ln(
     tie_b: Type[ParameterList],
     bias: bool = True,
     init_b: List[Type[torch.Tensor]] = None,
-    # TODO: check if init_b is tensor or parameters
 ):
     if (tie_b is None) and (init_type in ['pca', 'net2net']):
         assert init_b is not None, "tie_b or init_b should be given using pca or net2net"
         assert len(init_b) == len(src_ln_list) == 2, f"init_b should have same length as src_module_list, but got {len(init_b)} and {len(src_ln_list)}"
-            
+    
     # Layernorm weight, bias is both 1D tensor
     # register weight
     parametrize.register_parametrization(
@@ -573,7 +570,7 @@ def register_ln(
     )
 
     # if bias exists, register it
-    # bias ligo_b is tied to weight ligo_b
+    # bias ligo_b is tied to weight ligo_b, can change to init_b
     if bias:
         parametrize.register_parametrization(
             tgt_ln,

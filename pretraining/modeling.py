@@ -686,9 +686,8 @@ class BertLayer(nn.Module):
                 
             # add one more linear layer to blend two models
             if self.add_blend_layer:
-                # blend_output = self.blend_ln(layer_output)
-                blend_output = self.blend_layer(layer_output)
-                layer_output = layer_output + blend_output
+                # layer_output = self.blend_ln(layer_output)
+                layer_output = self.blend_layer(layer_output)
 
         output = (
             layer_output,
@@ -859,7 +858,7 @@ class BertLMPredictionHead(nn.Module):
             )
         
         # average logits after stitching
-        if self.config.avg_logits:
+        if self.config.is_stitched and self.config.avg_logits:
             hidden_states = hidden_states / self.config.num_src_models
         
         return hidden_states
@@ -1097,6 +1096,11 @@ class BertLMHeadModel(BertPreTrainedModel):
 
         self.cls = BertOnlyMLMHead(config, self.bert.embeddings.word_embeddings.weight)
         self.init_weights()
+        
+        if self.config.is_stitched and self.config.modularize:
+            for name, param in self.bert.named_parameters():
+                if "blend_layer.weight" in name:
+                    init.eye_(param)
 
     def forward(self, batch, output_attentions=False):
         input_ids = batch[1]

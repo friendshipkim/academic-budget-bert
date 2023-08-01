@@ -243,8 +243,9 @@ def copy_layernorm(
 
         # Copy weights
         # NOTE: if stitching two different models: (src1.weight.data + src2.weight.data) / 2
-        tgt.weight.data[:src1_dim] += src1.weight.data
-        tgt.weight.data[-src2_dim:] += src2.weight.data
+        tgt.weight.data[:src1_dim] = src1.weight.data
+        tgt.weight.data[-src2_dim:] = src2.weight.data
+        
         # average overlap
         tgt.weight.data[-src2_dim:src1_dim] = tgt.weight.data[-src2_dim:src1_dim] / 2
 
@@ -411,7 +412,7 @@ def copy_bert_embeddings(
 
     # Embedding layernorm
     if not skip_layernorm:
-        copy_layernorm(src1.LayerNorm, src2.LayerNorm, tgt.LayerNorm)
+        copy_layernorm(src1.LayerNorm, src2.LayerNorm, tgt.LayerNorm, extra_src_list=[src.LayerNorm for src in extra_src_list] if stitch4 else [],)
 
 
 def copy_bert(

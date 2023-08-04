@@ -93,6 +93,7 @@ class StitchedPretrainedBertConfig(PretrainedBertConfig):
         self.epsilon = kwargs.get("epsilon", 0)
         self.modularize = kwargs.get("modularize", False)
         self.add_blend_layer = kwargs.get("add_blend_layer", False)
+        self.add_blend_ln = kwargs.get("add_blend_ln", False)
 
 
 class PretrainedRobertaConfig(PretrainedBertConfig):

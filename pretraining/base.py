@@ -89,6 +89,7 @@ class BasePretrainModel(object):
                 if model_type == "stitched-bert-mlm":
                     args.model_config["modularize"] = args.modularize
                     args.model_config["add_blend_layer"] = args.add_blend_layer
+                    args.model_config["add_blend_ln"] = args.add_blend_ln
                     args.model_config["overlap"] = args.overlap
                 
                     if args.target_hidden_size == -1:

@@ -610,9 +610,11 @@ class BertLayer(nn.Module):
         
         # add an extra linear layer for modularized model
         self.add_blend_layer = self.config.is_stitched and self.config.modularize and self.config.add_blend_layer
+        self.add_blend_ln = self.config.is_stitched and self.config.modularize and self.config.add_blend_ln
         if self.add_blend_layer:
-            # self.blend_ln = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
             self.blend_layer = nn.Linear(config.hidden_size, config.hidden_size, bias=True)
+        if self.add_blend_ln:
+            self.blend_ln = BertLayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
     def maybe_layer_norm(self, hidden_states, layer_norm, current_ln_mode):
         if self.config.useLN and self.config.encoder_ln_mode in current_ln_mode:
@@ -686,8 +688,9 @@ class BertLayer(nn.Module):
                 
             # add one more linear layer to blend two models
             if self.add_blend_layer:
-                # layer_output = self.blend_ln(layer_output)
                 layer_output = self.blend_layer(layer_output)
+            if self.add_blend_ln and not skip_ln_dp:
+                layer_output = self.blend_ln(layer_output)
 
         output = (
             layer_output,

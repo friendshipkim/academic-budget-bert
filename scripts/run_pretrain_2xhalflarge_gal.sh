@@ -32,26 +32,25 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --adam_eps 1e-6 \
   --max_steps 10000 \
   --num_warmup_steps 600 \
-  --dataset_path /opt/ml/data/set23/ \
-  --output_dir /opt/ml/data/saved_models/ \
+  --dataset_path /opt/ml/data/total/ \
+  --output_dir /opt/ml/data/saved_models/stitch2 \
   --print_steps 100 \
   --num_epochs_between_checkpoints 10 \
-  --job_name 2xhalflarge \
-  --current_run_id set23 \
+  --job_name 2xhalflarge-gal \
+  --current_run_id total-stitch2 \
   --project_name budget-bert-pretraining \
   --validation_epochs 3 \
   --validation_epochs_begin 1 \
   --validation_epochs_end 1 \
   --validation_begin_proportion 0.05 \
   --validation_end_proportion 0.01 \
-  --validation_micro_batch 64 \
-  --validation_shards 5 \
+  --validation_micro_batch 16 \
   --deepspeed \
   --data_loader_type dist \
   --do_validation \
   --seed 42 \
   --fp16 \
   --do_stitch \
-  --src_model1_path /opt/ml/data/halflarge-0/0/epoch1000000_step10102/ \
-  --src_model2_path /opt/ml/data/halflarge-1/1/epoch1000000_step10010/ \
+  --src_model1_path /opt/ml/data/saved_models/halflarge_213-set1-10ksteps/set1-10ksteps/epoch1000000_step10023/ \
+  --src_model2_path /opt/ml/data/saved_models/halflarge_146-set1-10ksteps/set1-10ksteps/epoch1000000_step10031/ \
   $OTHER_PARAMS

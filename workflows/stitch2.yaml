@@ -1,0 +1,116 @@
+# This workflow demonstrates the use of a generator step which produces a list of items as a result.
+# This list is subsequently used for expanding the next step into multiple parallel steps.
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: stitch-finetune
+  labels:
+    extendedRun: 'true'
+    USER: galk
+spec:
+  entrypoint: s3-2-op
+  arguments:
+    parameters:
+    - name: lr
+      value: 0.001
+    - name: warmup
+      value: 600
+    - name: steps
+      value: 10000
+    - name: seed
+      value: 42
+    - name: dataset_path
+      value: /opt/ml/data/total/
+    - name: wd
+      value: 0.01
+    - name: src_model1_path
+      value: /opt/ml/data/saved_models/pretrain/halflarge-86/set01-10k/epoch1000000_step10035/
+    - name: src_model2_path
+      value: /opt/ml/data/saved_models/pretrain/halflarge-62/set23-10k/epoch1000000_step10004
+  volumes:
+  - name: argo-aws-cred
+    configMap:
+      name: argo-aws-cred
+  - name: argo-aws-config
+    configMap:
+      name: argo-aws-config
+  - name: dshm
+    emptyDir:
+      medium: Memory
+  - name: vast-vd-nfs
+    hostPath:
+      path: /mobileye/ALGO_VAST/mobileye-team-vd/gal/stitching/
+      type: Directory
+  templates:
+  - name: s3-2-op
+    steps:
+    - - name: angie-exec
+        template: angie-exec
+  - name: angie-exec
+    inputs:
+      parameters:
+      - name: lr
+        value: "{{workflow.parameters.lr}}"
+      - name: warmup
+        value: "{{workflow.parameters.warmup}}"
+      - name: steps
+        value: "{{workflow.parameters.steps}}"
+      - name: seed
+        value: "{{workflow.parameters.seed}}"
+      - name: dataset_path
+        value: "{{workflow.parameters.dataset_path}}"
+      - name: wd
+        value: "{{workflow.parameters.wd}}"
+      - name: src_model1_path
+        value: "{{workflow.parameters.src_model1_path}}"
+      - name: src_model2_path
+        value: "{{workflow.parameters.src_model2_path}}"
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+    nodeSelector:
+      gpu: nvidia-a100
+      #kubernetes.io/hostname: megpua100-a09
+    container:
+      env:
+        - name: OP_S3_STORAGE
+          valueFrom:
+            secretKeyRef:
+              name: op-s3-storage
+              key: endpointurl
+      imagePullPolicy: Always
+      image: artifactory.sddc.mobileye.com/angie-docker-dev/galk/dbert-argo:latest
+      resources:
+        requests:
+          memory: 125Gi
+          cpu: 24
+          nvidia.com/gpu: '1'
+        limits:
+          memory: 125Gi
+          cpu: 24
+          nvidia.com/gpu: '1'
+      command: [bash, -c]
+      args: 
+        - >-
+          git branch; 
+          eval `ssh-agent`; 
+          ssh-add docker/id_rsa; 
+          mkdir ~/.ssh; 
+          touch  ~/.ssh/known_hosts; 
+          ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts; 
+          git stash;
+          git fetch;
+          git switch -f gals_changes;
+          bash scripts/run_pretrain_2xhalflarge_gal.sh --lr {{inputs.parameters.lr}} --num_warmup_steps {{inputs.parameters.warmup}} --max_steps {{inputs.parameters.steps}} --seed {{inputs.parameters.seed}}  --dataset_path {{inputs.parameters.dataset_path}} --weight_decay {{inputs.parameters.wd}} --src_model1_path {{inputs.parameters.src_model1_path}} --src_model2_path {{inputs.parameters.src_model2_path}};
+      volumeMounts:
+      - name: argo-aws-cred
+        mountPath: /home/me.docker/.aws/credentials
+        subPath: credentials
+      - name: argo-aws-config
+        mountPath: /home/me.docker/.aws/config
+        subPath: config
+      - name: dshm
+        mountPath: /dev/shm
+      - name: vast-vd-nfs
+        mountPath: /opt/ml/data/

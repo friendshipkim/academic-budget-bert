@@ -1,12 +1,11 @@
 #! /bin/bash
-# Script to train a 2xhalflarge models
-# Stitch two half-large models trained on set 0/1
-# and train the stitched model on set 2/3 
-# Train for ~6k steps with 1 Titan-RTX gpu
-
+# Script to train a 4xhalflarge models
+# Stitch four half-large models trained on set 0/1/2/3
+# and train the stitched model on all sets
 OTHER_PARAMS=${@:1}
 export WANDB_API_KEY=641959d1c0dbfc348e2e0b75279abe93425c6ec7
 
+export WANDB_PROJECT=budget-bert-pretraining-test
 export WANDB_MODE=online
 deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --model_type bert-mlm --tokenizer_name bert-large-uncased \
@@ -30,28 +29,30 @@ deepspeed --include localhost:0 --master_port 29500 run_pretraining.py \
   --adam_beta1 0.9 \
   --adam_beta2 0.98 \
   --adam_eps 1e-6 \
-  --max_steps 10000 \
-  --num_warmup_steps 600 \
-  --dataset_path /opt/ml/data/set23/ \
-  --output_dir /opt/ml/data/saved_models/ \
+  --max_steps 500 \
+  --num_warmup_steps 100 \
+  --dataset_path /opt/ml/data/total/ \
+  --output_dir /opt/ml/data/saved_models/4stitch \
   --print_steps 100 \
   --num_epochs_between_checkpoints 10 \
-  --job_name 2xhalflarge \
-  --current_run_id set23 \
+  --job_name 4xhalflarge \
+  --current_run_id total \
   --project_name budget-bert-pretraining \
   --validation_epochs 3 \
   --validation_epochs_begin 1 \
   --validation_epochs_end 1 \
   --validation_begin_proportion 0.05 \
   --validation_end_proportion 0.01 \
-  --validation_micro_batch 64 \
-  --validation_shards 5 \
+  --validation_micro_batch 16 \
   --deepspeed \
   --data_loader_type dist \
   --do_validation \
   --seed 42 \
   --fp16 \
   --do_stitch \
-  --src_model1_path /opt/ml/data/halflarge-0/0/epoch1000000_step10102/ \
-  --src_model2_path /opt/ml/data/halflarge-1/1/epoch1000000_step10010/ \
+  --src_model1_path /opt/ml/data/saved_models/halflarge_213-set1-10ksteps/set1-10ksteps/epoch1000000_step10023/ \
+  --src_model2_path /opt/ml/data/saved_models/halflarge_146-set1-10ksteps/set1-10ksteps/epoch1000000_step10031/ \
+  --src_model3_path /opt/ml/data/saved_models/halflarge_95-set1-10ksteps/set1-10ksteps/epoch1000000_step10005/ \
+  --src_model4_path /opt/ml/data/saved_models/halflarge_199-set1-10ksteps/set1-10ksteps/epoch1000000_step10014/ \
   $OTHER_PARAMS
+  
